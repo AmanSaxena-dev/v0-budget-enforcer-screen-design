@@ -26,6 +26,7 @@ interface StatusScreenProps {
   showDivider?: boolean
   statusText?: string
   leftStatusText?: string
+  status?: string
 }
 
 export default function StatusScreen({
@@ -49,6 +50,7 @@ export default function StatusScreen({
   showDivider = false,
   statusText = "Current State",
   leftStatusText,
+  status,
 }: StatusScreenProps) {
   if (isDivided) {
     return (
@@ -105,10 +107,12 @@ export default function StatusScreen({
             {showActionButtons && (
               <div className="flex space-x-4 mt-6">
                 <Button onClick={onYesClick} className="bg-green-600 hover:bg-green-700">
-                  Yes
+                  {status === "budget-breaker" || status === "envelope-empty"
+                    ? "Yes, Shuffle Funds"
+                    : "Confirm Purchase"}
                 </Button>
                 <Button onClick={onNoClick} variant="outline" className="border-red-500 text-red-500 hover:bg-red-50">
-                  No
+                  {status === "budget-breaker" || status === "envelope-empty" ? "No, Cancel" : "Cancel"}
                 </Button>
               </div>
             )}

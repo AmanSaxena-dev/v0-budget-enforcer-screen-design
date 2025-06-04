@@ -94,7 +94,18 @@ export function NewEnvelopeForm({ onComplete }: NewEnvelopeFormProps) {
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0">
-            <Calendar mode="single" selected={startDate} onSelect={(date) => date && setStartDate(date)} initialFocus />
+            <Calendar
+              mode="single"
+              selected={startDate}
+              onSelect={(date) => {
+                if (date) {
+                  // Ensure we get the correct date in local timezone
+                  const localDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+                  setStartDate(localDate)
+                }
+              }}
+              initialFocus
+            />
           </PopoverContent>
         </Popover>
       </div>

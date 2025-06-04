@@ -2,16 +2,30 @@
 
 import { useBudget } from "@/context/budget-context"
 import StatusScreen from "@/components/status-screen"
+import { EnvelopeShuffle } from "@/components/envelope-shuffle"
 import { ThumbsUp, ThumbsDown, AlertTriangle, XCircle, Check } from "lucide-react"
 import { formatCurrency, calculateStatus, getStatusDetails } from "@/utils/budget-calculator"
 import { Button } from "@/components/ui/button"
 
 export default function BudgetStatusScreen() {
-  const { statusResult, confirmPurchase, resetSimulation, currentPurchase, showStatusScreen, currentEnvelope } =
-    useBudget()
+  const {
+    statusResult,
+    confirmPurchase,
+    resetSimulation,
+    currentPurchase,
+    showStatusScreen,
+    currentEnvelope,
+    showShuffleScreen,
+    setShowShuffleScreen,
+  } = useBudget()
 
   if (!statusResult || !showStatusScreen || !currentEnvelope) {
     return null
+  }
+
+  // If we're showing the shuffle screen, render the envelope shuffle component
+  if (showShuffleScreen) {
+    return <EnvelopeShuffle onCancel={() => setShowShuffleScreen(false)} onComplete={resetSimulation} />
   }
 
   // Calculate the current status (without the purchase)
@@ -80,18 +94,42 @@ export default function BudgetStatusScreen() {
   let subtext = ""
   const daysAfter = Math.round(statusResult.daysWorthAfterPurchase * 10) / 10
 
+  // Check if this purchase would exactly use up the allocation
+  const wouldExactlyUseUpAllocation =
+    currentPurchase &&
+    statusResult.remainingAmount > 0 &&
+    Math.abs(currentPurchase.amount - statusResult.remainingAmount) < 0.01
+
   switch (statusResult.status) {
     case "super-safe":
     case "safe":
       subtext = `This purchase would keep you at ${daysAfter} days' worth of spending.`
       break
     case "off-track":
-    case "danger":
       subtext = `This purchase would bring you to ${daysAfter} days' worth of spending.`
       break
-    case "envelope-empty":
+    case "danger":
+      if (wouldExactlyUseUpAllocation) {
+        subtext = `This purchase would use up exactly all the money in your ${statusResult.envelopeName} envelope.`
+      } else {
+        subtext = `This purchase would bring you to ${daysAfter} days' worth of spending.`
+      }
+      break
+    case "budget-breaker":
       subtext = `${statusResult.envelopeName} envelope only has ${formatCurrency(statusResult.remainingAmount)} left this period. Would you like to do an envelope shuffle to find the other ${formatCurrency(currentPurchase ? currentPurchase.amount - statusResult.remainingAmount : 0)} elsewhere?`
       break
+    case "envelope-empty":
+      subtext = `This envelope is already empty. Would you like to pull the ${formatCurrency(currentPurchase ? currentPurchase.amount : 0)} from another envelope?`
+      break
+  }
+
+  // Handle the "Yes" button click for budget-breaker or envelope-empty status
+  const handleYesClick = () => {
+    if (statusResult.status === "budget-breaker" || statusResult.status === "envelope-empty") {
+      setShowShuffleScreen(true)
+    } else {
+      confirmPurchase()
+    }
   }
 
   return (
@@ -111,17 +149,20 @@ export default function BudgetStatusScreen() {
         topIcon={currentStateIcon}
         tooltipText={tooltipText}
         showActionButtons={!!currentPurchase}
-        onYesClick={confirmPurchase}
+        onYesClick={handleYesClick}
         onNoClick={resetSimulation}
         showDivider={true}
         statusText="Current State"
         leftStatusText={currentStatusDetails.text}
+        status={statusResult.status}
       />
 
       <div className="flex justify-end">
-        <Button variant="outline" onClick={resetSimulation}>
-          Back to Home Screen
-        </Button>
+        {!currentPurchase && (
+          <Button variant="outline" onClick={resetSimulation}>
+            Back to Home Screen
+          </Button>
+        )}
       </div>
     </div>
   )
