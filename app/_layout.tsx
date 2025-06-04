@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { BudgetProvider } from '@/context/budget-context';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -19,10 +20,15 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <BudgetProvider>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="NewEnvelope" options={{ headerShown: false }} />
+        <Stack.Screen name="Status" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
+      </BudgetProvider>
       <StatusBar style="auto" />
     </ThemeProvider>
   );

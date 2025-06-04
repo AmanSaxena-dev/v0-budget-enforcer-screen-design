@@ -22,6 +22,8 @@ export default function HomeScreen() {
 
   // Navigate to status screen when a purchase is simulated
   useEffect(() => {
+    console.log(currentPurchase, statusResult);
+    
     if (currentPurchase && statusResult) {
       navigation.navigate("Status" as never)
     }
