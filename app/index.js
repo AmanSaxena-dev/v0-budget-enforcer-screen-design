@@ -1,43 +1,37 @@
 "use client"
-import { View, ActivityIndicator, StyleSheet } from "react-native"
-import { useRouter, Redirect } from "expo-router"
+
+import { useEffect } from "react"
+import { useRouter } from "expo-router"
+import { View, ActivityIndicator } from "react-native"
 import { useAuth } from "../src/context/AuthContext"
 import { useBudget } from "../src/context/BudgetContext"
 
 export default function Index() {
-  const { user, isLoading: authLoading } = useAuth()
-  const { currentPeriod, isLoading: budgetLoading } = useBudget()
   const router = useRouter()
+  const { user, loading } = useAuth()
+  const { hasActiveBudget } = useBudget()
 
-  const isLoading = authLoading || budgetLoading
+  useEffect(() => {
+    if (!loading) {
+      if (!user) {
+        router.replace("/auth")
+      } else if (!user.hasCompletedSetup) {
+        router.replace("/signup-flow")
+      } else if (!hasActiveBudget) {
+        router.replace("/welcome")
+      } else {
+        router.replace("/(tabs)")
+      }
+    }
+  }, [user, loading, hasActiveBudget])
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" />
       </View>
     )
   }
 
-  if (!user) {
-    return <Redirect href="/auth" />
-  }
-
-  if (user && !user.preferences) {
-    return <Redirect href="/signup-flow" />
-  }
-
-  if (user && user.preferences && !currentPeriod) {
-    return <Redirect href="/welcome" />
-  }
-
-  return <Redirect href="/(tabs)" />
+  return null
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-})

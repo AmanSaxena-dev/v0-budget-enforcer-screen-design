@@ -174,3 +174,41 @@ export function formatCurrency(amount) {
 export function formatDaysWorth(days) {
   return `${days.toFixed(1)} days`
 }
+
+export const calculateBudgetStatus = (envelopes) => {
+  const totalBudget = envelopes.reduce((sum, env) => sum + env.budgetAmount, 0)
+  const totalSpent = envelopes.reduce((sum, env) => sum + env.spent, 0)
+  const totalRemaining = envelopes.reduce((sum, env) => sum + env.currentAmount, 0)
+
+  const spentPercentage = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0
+
+  const overBudgetEnvelopes = envelopes.filter((env) => env.currentAmount < 0)
+  const healthyEnvelopes = envelopes.filter((env) => env.currentAmount >= env.budgetAmount * 0.2)
+  const warningEnvelopes = envelopes.filter(
+    (env) => env.currentAmount < env.budgetAmount * 0.2 && env.currentAmount >= 0,
+  )
+
+  return {
+    totalBudget,
+    totalSpent,
+    totalRemaining,
+    spentPercentage,
+    overBudgetCount: overBudgetEnvelopes.length,
+    healthyCount: healthyEnvelopes.length,
+    warningCount: warningEnvelopes.length,
+    status: overBudgetEnvelopes.length > 0 ? "danger" : warningEnvelopes.length > 0 ? "warning" : "healthy",
+  }
+}
+
+export const calculatePeriodBudget = (income, expenses, savingsGoal) => {
+  const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
+  const availableForEnvelopes = income - totalExpenses - savingsGoal
+
+  return {
+    totalIncome: income,
+    totalExpenses,
+    savingsGoal,
+    availableForEnvelopes,
+    isValid: availableForEnvelopes > 0,
+  }
+}

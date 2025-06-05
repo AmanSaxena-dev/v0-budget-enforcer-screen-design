@@ -1,24 +1,19 @@
 import { Stack } from "expo-router"
-import { StatusBar } from "expo-status-bar"
-import { SafeAreaProvider } from "react-native-safe-area-context"
 import { AuthProvider } from "../src/context/AuthContext"
 import { BudgetProvider } from "../src/context/BudgetContext"
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <StatusBar style="auto" />
-      <AuthProvider>
-        <BudgetProvider>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: "#f5f5f5" },
-              animation: "slide_from_right",
-            }}
-          />
-        </BudgetProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <AuthProvider>
+      <BudgetProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="auth" />
+          <Stack.Screen name="signup-flow" />
+          <Stack.Screen name="welcome" />
+          <Stack.Screen name="(tabs)" />
+        </Stack>
+      </BudgetProvider>
+    </AuthProvider>
   )
 }

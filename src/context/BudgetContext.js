@@ -3,216 +3,145 @@
 import { createContext, useContext, useState, useEffect } from "react"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useAuth } from "./AuthContext"
-import { calculateStatus, updateEnvelopeStatus } from "../utils/budgetCalculator"
+import { calculateBudgetStatus } from "../utils/budgetCalculator"
 
 const BudgetContext = createContext()
 
-const ENVELOPES_KEY = "budget_enforcer_envelopes"
-const PURCHASES_KEY = "budget_enforcer_purchases"
-const PERIODS_KEY = "budget_enforcer_periods"
-
-export function BudgetProvider({ children }) {
-  const { user } = useAuth()
-  const userId = user?.id || "guest"
-
-  const [envelopes, setEnvelopes] = useState([])
-  const [purchases, setPurchases] = useState([])
-  const [periods, setPeriods] = useState([])
-  const [hasActiveBudget, setHasActiveBudget] = useState(false)
-
-  const [currentEnvelope, setCurrentEnvelope] = useState(null)
-  const [statusResult, setStatusResult] = useState(null)
-  const [currentPurchase, setCurrentPurchase] = useState(null)
-  const [showStatusScreen, setShowStatusScreen] = useState(false)
-
-  const currentPeriod = periods.length > 0 ? periods[periods.length - 1] : null
-
-  useEffect(() => {
-    loadData()
-  }, [userId])
-
-  useEffect(() => {
-    if (user) {
-      saveData()
-    }
-  }, [user, envelopes, purchases, periods])
-
-  const loadData = async () => {
-    try {
-      const envelopesJson = await AsyncStorage.getItem(`${ENVELOPES_KEY}_${userId}`)
-      if (envelopesJson) {
-        const loadedEnvelopes = JSON.parse(envelopesJson).map((env) => ({
-          ...env,
-          startDate: new Date(env.startDate),
-        }))
-        setEnvelopes(loadedEnvelopes.map(updateEnvelopeStatus))
-        setHasActiveBudget(loadedEnvelopes.length > 0)
-      }
-
-      const purchasesJson = await AsyncStorage.getItem(`${PURCHASES_KEY}_${userId}`)
-      if (purchasesJson) {
-        const loadedPurchases = JSON.parse(purchasesJson).map((purchase) => ({
-          ...purchase,
-          date: new Date(purchase.date),
-        }))
-        setPurchases(loadedPurchases)
-      }
-
-      const periodsJson = await AsyncStorage.getItem(`${PERIODS_KEY}_${userId}`)
-      if (periodsJson) {
-        const loadedPeriods = JSON.parse(periodsJson).map((period) => ({
-          ...period,
-          startDate: new Date(period.startDate),
-          endDate: new Date(period.endDate),
-        }))
-        setPeriods(loadedPeriods)
-      }
-    } catch (error) {
-      console.error("Error loading data:", error)
-    }
-  }
-
-  const saveData = async () => {
-    try {
-      await AsyncStorage.setItem(`${ENVELOPES_KEY}_${userId}`, JSON.stringify(envelopes))
-      await AsyncStorage.setItem(`${PURCHASES_KEY}_${userId}`, JSON.stringify(purchases))
-      await AsyncStorage.setItem(`${PERIODS_KEY}_${userId}`, JSON.stringify(periods))
-    } catch (error) {
-      console.error("Error saving data:", error)
-    }
-  }
-
-  const simulatePurchase = (purchaseData) => {
-    if (currentEnvelope) {
-      const purchase = {
-        ...purchaseData,
-        id: `purchase_${Date.now()}`,
-        date: new Date(),
-      }
-
-      setCurrentPurchase(purchase)
-      const result = calculateStatus(currentEnvelope, purchase)
-      setStatusResult(result)
-      setShowStatusScreen(true)
-    }
-  }
-
-  const resetSimulation = () => {
-    if (currentEnvelope) {
-      setCurrentPurchase(null)
-      const result = calculateStatus(currentEnvelope)
-      setStatusResult(result)
-      setShowStatusScreen(false)
-    }
-  }
-
-  const confirmPurchase = () => {
-    if (currentEnvelope && currentPurchase) {
-      const newPurchases = [...purchases, currentPurchase]
-      setPurchases(newPurchases)
-
-      const updatedEnvelopes = envelopes.map((env) => {
-        if (env.id === currentEnvelope.id) {
-          const updated = {
-            ...env,
-            spent: env.spent + currentPurchase.amount,
-          }
-          return updateEnvelopeStatus(updated)
-        }
-        return env
-      })
-
-      const updatedEnvelope = updatedEnvelopes.find((env) => env.id === currentEnvelope.id)
-      setEnvelopes(updatedEnvelopes)
-      setCurrentEnvelope(updatedEnvelope)
-      setCurrentPurchase(null)
-
-      const result = calculateStatus(updatedEnvelope)
-      setStatusResult(result)
-      setShowStatusScreen(false)
-    }
-  }
-
-  const addEnvelope = (envelope) => {
-    const newEnvelope = {
-      ...envelope,
-      id: `env_${Date.now()}`,
-      color: "bg-green-100",
-    }
-
-    const updatedEnvelope = updateEnvelopeStatus(newEnvelope)
-    const newEnvelopes = [...envelopes, updatedEnvelope]
-    setEnvelopes(newEnvelopes)
-    setHasActiveBudget(true)
-  }
-
-  const startNewPeriod = (startDate, periodLength, envelopeData, providedEndDate) => {
-    const endDate =
-      providedEndDate ||
-      (() => {
-        const calculated = new Date(startDate)
-        calculated.setDate(startDate.getDate() + periodLength - 1)
-        calculated.setHours(23, 59, 59, 999)
-        return calculated
-      })()
-
-    const newEnvelopes = envelopeData.map((envData) => {
-      const newEnvelope = {
-        ...envData,
-        id: `env_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        startDate,
-        color: "bg-green-100",
-      }
-      return updateEnvelopeStatus(newEnvelope)
-    })
-
-    const newPeriod = {
-      id: `period_${Date.now()}`,
-      startDate,
-      endDate,
-      envelopes: newEnvelopes,
-      transactions: [],
-    }
-
-    setPeriods([...periods, newPeriod])
-    setEnvelopes(newEnvelopes)
-    setHasActiveBudget(true)
-    setCurrentEnvelope(null)
-    setStatusResult(null)
-    setCurrentPurchase(null)
-    setShowStatusScreen(false)
-  }
-
-  return (
-    <BudgetContext.Provider
-      value={{
-        envelopes,
-        currentEnvelope,
-        setCurrentEnvelope,
-        statusResult,
-        simulatePurchase,
-        resetSimulation,
-        confirmPurchase,
-        currentPurchase,
-        addEnvelope,
-        showStatusScreen,
-        setShowStatusScreen,
-        purchases,
-        periods,
-        currentPeriod,
-        startNewPeriod,
-        hasActiveBudget,
-      }}
-    >
-      {children}
-    </BudgetContext.Provider>
-  )
-}
-
-export function useBudget() {
+export const useBudget = () => {
   const context = useContext(BudgetContext)
   if (!context) {
     throw new Error("useBudget must be used within a BudgetProvider")
   }
   return context
+}
+
+export const BudgetProvider = ({ children }) => {
+  const { user } = useAuth()
+  const [budgetData, setBudgetData] = useState({
+    envelopes: [],
+    transactions: [],
+    currentPeriod: null,
+    shuffleLimits: {
+      daily: 3,
+      weekly: 10,
+      monthly: 30,
+    },
+    shuffleHistory: [],
+  })
+
+  const [hasActiveBudget, setHasActiveBudget] = useState(false)
+
+  useEffect(() => {
+    if (user) {
+      loadBudgetData()
+    }
+  }, [user])
+
+  const loadBudgetData = async () => {
+    try {
+      const data = await AsyncStorage.getItem("budgetData")
+      if (data) {
+        const parsedData = JSON.parse(data)
+        setBudgetData(parsedData)
+        setHasActiveBudget(parsedData.envelopes.length > 0)
+      }
+    } catch (error) {
+      console.error("Error loading budget data:", error)
+    }
+  }
+
+  const saveBudgetData = async (data) => {
+    try {
+      await AsyncStorage.setItem("budgetData", JSON.stringify(data))
+      setBudgetData(data)
+      setHasActiveBudget(data.envelopes.length > 0)
+    } catch (error) {
+      console.error("Error saving budget data:", error)
+    }
+  }
+
+  const createBudget = async (envelopes, periodInfo) => {
+    const newBudgetData = {
+      ...budgetData,
+      envelopes: envelopes.map((env) => ({
+        ...env,
+        id: Math.random().toString(36).substr(2, 9),
+        currentAmount: env.budgetAmount,
+        spent: 0,
+      })),
+      currentPeriod: periodInfo,
+    }
+
+    await saveBudgetData(newBudgetData)
+  }
+
+  const addTransaction = async (transaction) => {
+    const newTransaction = {
+      ...transaction,
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+    }
+
+    const updatedEnvelopes = budgetData.envelopes.map((env) => {
+      if (env.id === transaction.envelopeId) {
+        return {
+          ...env,
+          currentAmount: env.currentAmount - transaction.amount,
+          spent: env.spent + transaction.amount,
+        }
+      }
+      return env
+    })
+
+    const newBudgetData = {
+      ...budgetData,
+      envelopes: updatedEnvelopes,
+      transactions: [...budgetData.transactions, newTransaction],
+    }
+
+    await saveBudgetData(newBudgetData)
+  }
+
+  const shuffleFunds = async (fromEnvelopeId, toEnvelopeId, amount) => {
+    const shuffleRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      fromEnvelopeId,
+      toEnvelopeId,
+      amount,
+      timestamp: new Date().toISOString(),
+    }
+
+    const updatedEnvelopes = budgetData.envelopes.map((env) => {
+      if (env.id === fromEnvelopeId) {
+        return { ...env, currentAmount: env.currentAmount - amount }
+      }
+      if (env.id === toEnvelopeId) {
+        return { ...env, currentAmount: env.currentAmount + amount }
+      }
+      return env
+    })
+
+    const newBudgetData = {
+      ...budgetData,
+      envelopes: updatedEnvelopes,
+      shuffleHistory: [...budgetData.shuffleHistory, shuffleRecord],
+    }
+
+    await saveBudgetData(newBudgetData)
+  }
+
+  const getBudgetStatus = () => {
+    return calculateBudgetStatus(budgetData.envelopes)
+  }
+
+  const value = {
+    budgetData,
+    hasActiveBudget,
+    createBudget,
+    addTransaction,
+    shuffleFunds,
+    getBudgetStatus,
+  }
+
+  return <BudgetContext.Provider value={value}>{children}</BudgetContext.Provider>
 }
