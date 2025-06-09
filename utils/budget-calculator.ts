@@ -118,83 +118,69 @@ export function calculateNextPeriod(
   return { startDate, endDate, periodLength }
 }
 
-// Calculate the next period start date (6am the day after period ends)
-export function calculateNextPeriodStart(startDate: Date, periodLength: number): Date {
-  const nextStart = new Date(startDate)
-  nextStart.setDate(startDate.getDate() + periodLength)
-  nextStart.setHours(6, 0, 0, 0)
-  return nextStart
-}
-
-// Check if it's time to start a new period (6am on the day after period ends)
-export function shouldStartNewPeriod(startDate: Date, periodLength: number, currentDate: Date = new Date()): boolean {
-  const nextPeriodStart = calculateNextPeriodStart(startDate, periodLength)
-  return currentDate >= nextPeriodStart
-}
-
 // Get status details based on status type
 export function getStatusDetails(status: StatusType): EnvelopeStatus {
   switch (status) {
     case "super-safe":
       return {
         status,
-        color: "bg-green-700",
-        textColor: "text-white",
-        borderColor: "border-white",
+        color: "#15803d",
+        textColor: "#ffffff",
+        borderColor: "#ffffff",
         icon: "check",
         text: "Super Safe",
       }
     case "safe":
       return {
         status,
-        color: "bg-green-100",
-        textColor: "text-green-700",
-        borderColor: "border-green-500",
+        color: "#dcfce7",
+        textColor: "#15803d",
+        borderColor: "#22c55e",
         icon: "thumbs-up",
         text: "Safe",
       }
     case "off-track":
       return {
         status,
-        color: "bg-amber-100",
-        textColor: "text-amber-700",
-        borderColor: "border-amber-500",
+        color: "#fef3c7",
+        textColor: "#d97706",
+        borderColor: "#f59e0b",
         icon: "alert-triangle",
         text: "Off Track (Caution)",
       }
     case "danger":
       return {
         status,
-        color: "bg-orange-200",
-        textColor: "text-orange-800",
-        borderColor: "border-orange-600",
+        color: "#fed7aa",
+        textColor: "#ea580c",
+        borderColor: "#ea580c",
         icon: "alert-triangle",
         text: "Danger Zone",
       }
     case "budget-breaker":
       return {
         status,
-        color: "bg-red-100",
-        textColor: "text-red-700",
-        borderColor: "border-red-500",
+        color: "#fecaca",
+        textColor: "#dc2626",
+        borderColor: "#ef4444",
         icon: "thumbs-down",
         text: "Budget Breaker",
       }
     case "envelope-empty":
       return {
         status,
-        color: "bg-red-100",
-        textColor: "text-red-700",
-        borderColor: "border-red-500",
+        color: "#fecaca",
+        textColor: "#dc2626",
+        borderColor: "#ef4444",
         icon: "x-circle",
         text: "Envelope Empty",
       }
     default:
       return {
         status: "super-safe",
-        color: "bg-green-700",
-        textColor: "text-white",
-        borderColor: "border-white",
+        color: "#15803d",
+        textColor: "#ffffff",
+        borderColor: "#ffffff",
         icon: "check",
         text: "Super Safe",
       }

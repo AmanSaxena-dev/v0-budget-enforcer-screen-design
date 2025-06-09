@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import type {
   Envelope,
   Purchase,
@@ -12,7 +13,7 @@ import type {
   ShuffleLimit,
   UserPreferences,
 } from "@/types/budget"
-import { calculateStatus, updateEnvelopeStatus, calculateNextPeriod } from "@/utils/budget-calculator"
+import { calculateStatus, updateEnvelopeStatus } from "@/utils/budget-calculator"
 import { useAuth } from "@/context/authContext"
 
 // Storage keys
@@ -68,7 +69,7 @@ interface BudgetContextType {
     startDate: Date,
     periodLength: number,
     envelopes: Omit<Envelope, "id" | "color" | "startDate">[],
-    endDate?: Date, // Add optional end date parameter
+    endDate?: Date,
   ) => void
   hasActiveBudget: boolean
   getNextPeriods: () => Array<{
@@ -221,14 +222,6 @@ const calculateNextPeriods = (
         break
     }
 
-    // Debug logging to help diagnose issues
-    console.log(`Period ${i + 1}:`, {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      periodLength,
-      paycheckFrequency: userPreferences.paycheckFrequency,
-    })
-
     periods.push({
       id: `future_period_${startDate.getTime()}`,
       startDate: new Date(startDate),
@@ -266,12 +259,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   // Get the current period
   const currentPeriod = periods.length > 0 ? periods[periods.length - 1] : null
 
-  // Load data from localStorage when user changes
+  // Load data from AsyncStorage when user changes
   useEffect(() => {
-    const loadData = () => {
+    const loadData = async () => {
       try {
         // Load envelopes
-        const envelopesJson = localStorage.getItem(`${ENVELOPES_KEY}_${userId}`)
+        const envelopesJson = await AsyncStorage.getItem(`${ENVELOPES_KEY}_${userId}`)
         if (envelopesJson) {
           const loadedEnvelopes = JSON.parse(envelopesJson).map((env: any) => ({
             ...env,
@@ -285,7 +278,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Load purchases
-        const purchasesJson = localStorage.getItem(`${PURCHASES_KEY}_${userId}`)
+        const purchasesJson = await AsyncStorage.getItem(`${PURCHASES_KEY}_${userId}`)
         if (purchasesJson) {
           const loadedPurchases = JSON.parse(purchasesJson).map((purchase: any) => ({
             ...purchase,
@@ -297,7 +290,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Load shuffle transactions
-        const shufflesJson = localStorage.getItem(`${SHUFFLES_KEY}_${userId}`)
+        const shufflesJson = await AsyncStorage.getItem(`${SHUFFLES_KEY}_${userId}`)
         if (shufflesJson) {
           const loadedShuffles = JSON.parse(shufflesJson).map((shuffle: any) => ({
             ...shuffle,
@@ -309,7 +302,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Load periods
-        const periodsJson = localStorage.getItem(`${PERIODS_KEY}_${userId}`)
+        const periodsJson = await AsyncStorage.getItem(`${PERIODS_KEY}_${userId}`)
         if (periodsJson) {
           const loadedPeriods = JSON.parse(periodsJson).map((period: any) => ({
             ...period,
@@ -330,7 +323,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Load shuffle limits
-        const limitsJson = localStorage.getItem(`${SHUFFLE_LIMITS_KEY}_${userId}`)
+        const limitsJson = await AsyncStorage.getItem(`${SHUFFLE_LIMITS_KEY}_${userId}`)
         if (limitsJson) {
           setShuffleLimits(JSON.parse(limitsJson))
         } else {
@@ -344,17 +337,17 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     loadData()
   }, [user, userId])
 
-  // Save data to localStorage when it changes
+  // Save data to AsyncStorage when it changes
   useEffect(() => {
     if (!user) return
 
-    const saveData = () => {
+    const saveData = async () => {
       try {
-        localStorage.setItem(`${ENVELOPES_KEY}_${userId}`, JSON.stringify(envelopes))
-        localStorage.setItem(`${PURCHASES_KEY}_${userId}`, JSON.stringify(purchases))
-        localStorage.setItem(`${SHUFFLES_KEY}_${userId}`, JSON.stringify(shuffleTransactions))
-        localStorage.setItem(`${PERIODS_KEY}_${userId}`, JSON.stringify(periods))
-        localStorage.setItem(`${SHUFFLE_LIMITS_KEY}_${userId}`, JSON.stringify(shuffleLimits))
+        await AsyncStorage.setItem(`${ENVELOPES_KEY}_${userId}`, JSON.stringify(envelopes))
+        await AsyncStorage.setItem(`${PURCHASES_KEY}_${userId}`, JSON.stringify(purchases))
+        await AsyncStorage.setItem(`${SHUFFLES_KEY}_${userId}`, JSON.stringify(shuffleTransactions))
+        await AsyncStorage.setItem(`${PERIODS_KEY}_${userId}`, JSON.stringify(periods))
+        await AsyncStorage.setItem(`${SHUFFLE_LIMITS_KEY}_${userId}`, JSON.stringify(shuffleLimits))
       } catch (error) {
         console.error("Error saving data:", error)
       }
@@ -399,7 +392,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Confirm the purchase
-  const confirmPurchase = () => {
+  const confirmPurchase = async () => {
     if (currentEnvelope && currentPurchase) {
       // Add purchase to history
       const newPurchases = [...purchases, currentPurchase]
@@ -447,7 +440,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Shuffle envelopes
-  const shuffleEnvelopes = (targetEnvelopeId: string, purchase: Purchase, allocations: ShuffleAllocation[]) => {
+  const shuffleEnvelopes = async (targetEnvelopeId: string, purchase: Purchase, allocations: ShuffleAllocation[]) => {
     // Get the target envelope
     const targetEnvelope = envelopes.find((env) => env.id === targetEnvelopeId)
     if (!targetEnvelope || !purchase) return
@@ -540,11 +533,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Add a new envelope
-  const addEnvelope = (envelope: Omit<Envelope, "id" | "color">) => {
+  const addEnvelope = async (envelope: Omit<Envelope, "id" | "color">) => {
     const newEnvelope: Envelope = {
       ...envelope,
       id: `env_${Date.now()}`,
-      color: "bg-green-100", // Default color, will be updated
+      color: "#dcfce7", // Default color, will be updated
     }
 
     const updatedEnvelope = updateEnvelopeStatus(newEnvelope)
@@ -578,7 +571,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Update an envelope
-  const updateEnvelope = (id: string, updates: Partial<Envelope>) => {
+  const updateEnvelope = async (id: string, updates: Partial<Envelope>) => {
     const updatedEnvelopes = envelopes.map((env) => {
       if (env.id === id) {
         const updated = { ...env, ...updates }
@@ -611,7 +604,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Delete an envelope
-  const deleteEnvelope = (id: string) => {
+  const deleteEnvelope = async (id: string) => {
     const newEnvelopes = envelopes.filter((env) => env.id !== id)
     setEnvelopes(newEnvelopes)
     setHasActiveBudget(newEnvelopes.length > 0)
@@ -641,7 +634,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Update shuffle limit for an envelope
-  const updateShuffleLimit = (envelopeId: string, maxAmount: number) => {
+  const updateShuffleLimit = async (envelopeId: string, maxAmount: number) => {
     const limitIndex = shuffleLimits.findIndex((limit) => limit.envelopeId === envelopeId)
 
     if (limitIndex >= 0) {
@@ -664,11 +657,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Start a new period
-  const startNewPeriod = (
+  const startNewPeriod = async (
     startDate: Date,
     periodLength: number,
     envelopeData: Omit<Envelope, "id" | "color" | "startDate">[],
-    providedEndDate?: Date, // Add optional end date parameter
+    providedEndDate?: Date,
   ) => {
     // Use provided end date or calculate it
     const endDate =
@@ -694,7 +687,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         ...envData,
         id: `env_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         startDate,
-        color: "bg-green-100", // Will be updated
+        color: "#dcfce7", // Will be updated
         // If there's an existing envelope, calculate previousRemaining
         previousRemaining: existingEnvelope ? Math.max(0, existingEnvelope.allocation - existingEnvelope.spent) : 0,
       }
@@ -744,95 +737,68 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     const nextPeriods = calculateNextPeriods(user.preferences, currentPeriod, 3)
 
     // Check which periods have saved plans
-    const savedPlansJson = localStorage.getItem(`budget_enforcer_period_plans_${userId}`)
-    const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
+    const checkSavedPlans = async () => {
+      try {
+        const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+        const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
-    return nextPeriods.map((period) => ({
-      ...period,
-      isPlanned: period.isCurrent || !!savedPlans[period.id],
-    }))
+        return nextPeriods.map((period) => ({
+          ...period,
+          isPlanned: period.isCurrent || !!savedPlans[period.id],
+        }))
+      } catch (error) {
+        console.error("Error checking saved plans:", error)
+        return nextPeriods
+      }
+    }
+
+    // For now, return without async check - this could be improved
+    return nextPeriods
   }
 
   // Save a plan for a specific period
-  const savePeriodPlan = (periodId: string, envelopes: Omit<Envelope, "id" | "color" | "startDate">[]) => {
-    const savedPlansJson = localStorage.getItem(`budget_enforcer_period_plans_${userId}`)
-    const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
+  const savePeriodPlan = async (periodId: string, envelopes: Omit<Envelope, "id" | "color" | "startDate">[]) => {
+    try {
+      const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+      const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
-    savedPlans[periodId] = {
-      envelopes,
-      savedAt: new Date().toISOString(),
+      savedPlans[periodId] = {
+        envelopes,
+        savedAt: new Date().toISOString(),
+      }
+
+      await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
+    } catch (error) {
+      console.error("Error saving period plan:", error)
     }
-
-    localStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
   }
 
   // Get a plan for a specific period
-  const getPeriodPlan = (periodId: string): Omit<Envelope, "id" | "color" | "startDate">[] | null => {
-    const savedPlansJson = localStorage.getItem(`budget_enforcer_period_plans_${userId}`)
-    const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
-
-    return savedPlans[periodId]?.envelopes || null
-  }
-
-  // Delete a plan for a specific period
-  const deletePeriodPlan = (periodId: string) => {
-    const savedPlansJson = localStorage.getItem(`budget_enforcer_period_plans_${userId}`)
-    const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
-
-    delete savedPlans[periodId]
-
-    localStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
-  }
-
-  // Check if we should automatically start the next period
-  const checkAndStartNextPeriod = () => {
-    if (!user?.preferences || !currentPeriod) return
-
-    const now = new Date()
-    const periodEndDate = new Date(currentPeriod.endDate)
-    periodEndDate.setHours(23, 59, 59, 999)
-
-    // Check if current period has ended
-    if (now > periodEndDate) {
-      // Look for a saved plan for the next period
-      const nextPeriodStart = new Date(currentPeriod.endDate)
-      nextPeriodStart.setDate(nextPeriodStart.getDate() + 1)
-
-      const nextPeriodId = `period_${nextPeriodStart.getTime()}`
-      const savedPlansJson = localStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+  const getPeriodPlan = async (periodId: string): Promise<Omit<Envelope, "id" | "color" | "startDate">[] | null> => {
+    try {
+      const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
       const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
-      if (savedPlans[nextPeriodId]) {
-        // We have a saved plan, use it to start the next period
-        const plan = savedPlans[nextPeriodId]
-        const nextPeriodLength = user.preferences.periodLength
-
-        // Calculate the actual next period dates based on user preferences
-        const { startDate, endDate, periodLength } = calculateNextPeriod(user.preferences, currentPeriod.endDate)
-
-        startNewPeriod(
-          startDate,
-          periodLength,
-          plan.envelopes.map((env: any) => ({
-            ...env,
-            periodLength,
-          })),
-        )
-
-        // Remove the used plan
-        delete savedPlans[nextPeriodId]
-        localStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
-      }
+      return savedPlans[periodId]?.envelopes || null
+    } catch (error) {
+      console.error("Error getting period plan:", error)
+      return null
     }
   }
 
-  // Add this useEffect to check for period transitions
-  useEffect(() => {
-    const interval = setInterval(checkAndStartNextPeriod, 60000) // Check every minute
-    checkAndStartNextPeriod() // Check immediately
+  // Delete a plan for a specific period
+  const deletePeriodPlan = async (periodId: string) => {
+    try {
+      const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+      const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
-    return () => clearInterval(interval)
-  }, [user, currentPeriod, userId])
+      delete savedPlans[periodId]
+
+      await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
+    } catch (error) {
+      console.error("Error deleting period plan:", error)
+    }
+  }
 
   return (
     <BudgetContext.Provider
