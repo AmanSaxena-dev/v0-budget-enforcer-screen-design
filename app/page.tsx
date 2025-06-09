@@ -1,7 +1,7 @@
 "use client"
 
-import PurchaseSimulator from "../components/purchase-simulator"
+import { PeriodPlanner } from "../components/period-planner"
 
 export default function SyntheticV0PageForDeployment() {
-  return <PurchaseSimulator />
+  return <PeriodPlanner />
 }
