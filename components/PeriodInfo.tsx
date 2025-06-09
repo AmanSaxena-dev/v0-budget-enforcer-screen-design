@@ -1,41 +1,51 @@
 import { View, Text, StyleSheet } from "react-native"
-import { useBudget } from "../context/budget-context"
-import { format } from "date-fns"
-import { calculateDayInPeriod } from "../utils/budget-calculator"
+import { useBudget } from "@/context/budgetContext"
+import { Ionicons } from "@expo/vector-icons"
+import { calculateDayInPeriod } from "@/utils/budget-calculator"
 
-export default function PeriodInfo() {
-  const { envelopes } = useBudget()
+export function PeriodInfo() {
+  const { currentPeriod } = useBudget()
 
-  // Use the first envelope to get period info, or default to current date
-  const startDate = envelopes.length > 0 ? envelopes[0].startDate : new Date()
-  const periodLength = envelopes.length > 0 ? envelopes[0].periodLength : 14
+  if (!currentPeriod) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.card}>
+          <View style={styles.content}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="calendar" size={24} color="#007AFF" />
+            </View>
+            <View style={styles.textContainer}>
+              <Text style={styles.title}>No Active Period</Text>
+              <Text style={styles.subtitle}>Please set up your budget</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    )
+  }
 
-  // Calculate end date
-  const endDate = new Date(startDate)
-  endDate.setDate(startDate.getDate() + periodLength - 1)
-
-  // Calculate current day in period
-  const currentDay = calculateDayInPeriod(startDate)
-
-  // Format dates
-  const formattedStartDate = format(startDate, "MMMM d, yyyy")
-  const formattedEndDate = format(endDate, "MMMM d, yyyy")
-  const formattedCurrentDate = format(new Date(), "MMMM d, yyyy")
+  const startDate = currentPeriod.startDate
+  const endDate = currentPeriod.endDate
+  const periodLength = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  const currentDay = calculateDayInPeriod(startDate, periodLength)
 
   return (
-    <View style={styles.card}>
-      <View style={styles.content}>
-        <View>
-          <Text style={styles.heading}>Current Period</Text>
-          <Text style={styles.subtext}>
-            {formattedStartDate} to {formattedEndDate}
-          </Text>
-        </View>
-        <View style={styles.todaySection}>
-          <Text style={styles.heading}>Today</Text>
-          <Text style={styles.subtext}>
-            {formattedCurrentDate} <Text style={styles.day}>(Day {currentDay})</Text>
-          </Text>
+    <View style={styles.container}>
+      <View style={styles.card}>
+        <View style={styles.content}>
+          <View style={styles.iconContainer}>
+            <Ionicons name="calendar" size={24} color="#007AFF" />
+          </View>
+          <View style={styles.textContainer}>
+            <Text style={styles.title}>Current Period</Text>
+            <Text style={styles.subtitle}>
+              {startDate.toLocaleDateString()} to {endDate.toLocaleDateString()}
+            </Text>
+          </View>
+          <View style={styles.dayContainer}>
+            <Text style={styles.dayNumber}>Day {currentDay}</Text>
+            <Text style={styles.dayTotal}>of {periodLength}</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -43,32 +53,63 @@ export default function PeriodInfo() {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    padding: 16,
+    paddingBottom: 0,
+  },
   card: {
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: 12,
+    padding: 16,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    elevation: 2,
-    marginBottom: 16,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   content: {
-    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
   },
-  heading: {
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#f0f8ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 18,
     fontWeight: "bold",
-    fontSize: 16,
+    color: "#333",
     marginBottom: 4,
   },
-  subtext: {
+  subtitle: {
     fontSize: 14,
     color: "#666",
   },
-  todaySection: {
-    marginTop: 12,
+  dayContainer: {
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
-  day: {
-    fontWeight: "500",
+  dayNumber: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#007AFF",
+  },
+  dayTotal: {
+    fontSize: 12,
+    color: "#666",
   },
 })

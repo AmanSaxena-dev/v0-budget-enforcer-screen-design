@@ -1,19 +1,34 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, TextInput } from "react-native"
-import { useBudget } from "../context/budget-context"
-import { formatCurrency } from "../utils/budget-calculator"
-import { Feather } from "@expo/vector-icons"
-import { Picker } from "@react-native-picker/picker"
-import { useNavigation } from "@react-navigation/native"
+import { useState, useEffect } from "react"
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Modal } from "react-native"
+import { useBudget } from "@/context/budgetContext"
+import { Ionicons } from "@expo/vector-icons"
+import { formatCurrency } from "@/utils/budget-calculator"
+import RNPickerSelect from "react-native-picker-select"
+import { NewEnvelopeForm } from "./NewEnvelopeForm"
 
-export default function PurchaseSimulator() {
-  const { envelopes, currentEnvelope, setCurrentEnvelope, simulatePurchase } = useBudget()
-  const navigation = useNavigation()
+export function PurchaseSimulator() {
+  const {
+    envelopes,
+    currentEnvelope,
+    setCurrentEnvelope,
+    simulatePurchase,
+    resetSimulation,
+    currentPurchase,
+    showStatusScreen,
+  } = useBudget()
 
   const [amount, setAmount] = useState("")
   const [item, setItem] = useState("")
+  const [showNewEnvelopeForm, setShowNewEnvelopeForm] = useState(false)
+
+  // Set the first envelope as current when component mounts if none is selected
+  useEffect(() => {
+    if (envelopes.length > 0 && !currentEnvelope) {
+      setCurrentEnvelope(envelopes[0])
+    }
+  }, [envelopes, currentEnvelope, setCurrentEnvelope])
 
   const handleSimulate = () => {
     if (currentEnvelope && amount) {
@@ -27,176 +42,200 @@ export default function PurchaseSimulator() {
   }
 
   const handleScanBarcode = () => {
-    // In a real app, this would integrate with a barcode scanner
-    alert("Barcode scanning would be implemented here")
+    Alert.alert("Barcode Scanner", "Barcode scanning would be implemented here")
   }
 
-  const handleAddEnvelope = () => {
-    navigation.navigate("NewEnvelope" as never)
+  if (showStatusScreen) {
+    return null // Hide the simulator when showing status screen
   }
+
+  const pickerItems = [
+    ...envelopes.map((envelope) => ({
+      label: `${envelope.name} (${formatCurrency(envelope.allocation - envelope.spent)} remaining)`,
+      value: envelope.id,
+    })),
+    {
+      label: "+ New Envelope",
+      value: "new",
+    },
+  ]
 
   return (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>What do you want to buy?</Text>
-      </View>
+    <View style={styles.container}>
+      <View style={styles.card}>
+        <Text style={styles.title}>What do you want to buy?</Text>
 
-      <View style={styles.cardContent}>
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Envelope *</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={currentEnvelope?.id || ""}
-              onValueChange={(value) => {
-                if (value === "new") {
-                  handleAddEnvelope()
-                } else {
-                  const envelope = envelopes.find((env) => env.id === value)
-                  if (envelope) {
-                    setCurrentEnvelope(envelope)
+        <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Envelope *</Text>
+            <View style={styles.pickerContainer}>
+              <RNPickerSelect
+                onValueChange={(value) => {
+                  if (value === "new") {
+                    setShowNewEnvelopeForm(true)
+                  } else {
+                    const envelope = envelopes.find((env) => env.id === value)
+                    if (envelope) {
+                      setCurrentEnvelope(envelope)
+                      resetSimulation()
+                    }
                   }
-                }
-              }}
-              style={styles.picker}
-            >
-              {envelopes.map((envelope) => (
-                <Picker.Item
-                  key={envelope.id}
-                  label={`${envelope.name} (${formatCurrency(envelope.allocation - envelope.spent)} remaining)`}
-                  value={envelope.id}
-                />
-              ))}
-              <Picker.Item label="+ New Envelope" value="new" />
-            </Picker>
+                }}
+                items={pickerItems}
+                value={currentEnvelope?.id || ""}
+                placeholder={{
+                  label: "Select an envelope",
+                  value: null,
+                }}
+                style={{
+                  inputIOS: styles.pickerInput,
+                  inputAndroid: styles.pickerInput,
+                  placeholder: styles.pickerPlaceholder,
+                }}
+              />
+            </View>
           </View>
-        </View>
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Amount ($) *</Text>
-          <TextInput
-            style={styles.input}
-            value={amount}
-            onChangeText={setAmount}
-            placeholder="Enter amount"
-            keyboardType="decimal-pad"
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>Item/SKU</Text>
-            <Text style={styles.optionalText}>(optional)</Text>
-          </View>
-          <View style={styles.inputRow}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Amount ($) *</Text>
             <TextInput
-              style={[styles.input, styles.itemInput]}
-              value={item}
-              onChangeText={setItem}
-              placeholder="Enter item name or SKU"
+              style={styles.input}
+              value={amount}
+              onChangeText={setAmount}
+              placeholder="Enter amount"
+              keyboardType="numeric"
+              editable={!currentPurchase}
             />
-            <TouchableOpacity style={styles.scanButton} onPress={handleScanBarcode}>
-              <Feather name="camera" size={20} color="#0284c7" />
-            </TouchableOpacity>
           </View>
-        </View>
 
-        <TouchableOpacity
-          style={[styles.button, (!amount || !currentEnvelope) && styles.buttonDisabled]}
-          onPress={handleSimulate}
-          disabled={!amount || !currentEnvelope}
-        >
-          <Text style={styles.buttonText}>Check Purchase Impact</Text>
-        </TouchableOpacity>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Item/SKU <Text style={styles.optional}>(optional)</Text>
+            </Text>
+            <View style={styles.itemInputContainer}>
+              <TextInput
+                style={[styles.input, styles.itemInput]}
+                value={item}
+                onChangeText={setItem}
+                placeholder="Enter item name or SKU"
+                editable={!currentPurchase}
+              />
+              <TouchableOpacity style={styles.scanButton} onPress={handleScanBarcode} disabled={!!currentPurchase}>
+                <Ionicons name="scan" size={20} color="#007AFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.simulateButton, (!amount || !currentEnvelope || !!currentPurchase) && styles.buttonDisabled]}
+            onPress={handleSimulate}
+            disabled={!amount || !currentEnvelope || !!currentPurchase}
+          >
+            <Text style={styles.simulateButtonText}>Check Purchase Impact</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      <Modal visible={showNewEnvelopeForm} animationType="slide" presentationStyle="pageSheet">
+        <NewEnvelopeForm onComplete={() => setShowNewEnvelopeForm(false)} />
+      </Modal>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
+  container: {
+    marginTop: 16,
+  },
   card: {
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: 12,
+    padding: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    elevation: 2,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  cardHeader: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-  },
-  cardTitle: {
+  title: {
     fontSize: 18,
     fontWeight: "bold",
+    color: "#333",
+    marginBottom: 20,
   },
-  cardContent: {
-    padding: 16,
+  form: {
     gap: 16,
   },
-  formGroup: {
-    marginBottom: 12,
+  inputGroup: {
+    gap: 8,
   },
   label: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "500",
-    marginBottom: 6,
+    color: "#333",
   },
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  optionalText: {
-    fontSize: 12,
+  optional: {
+    fontSize: 14,
     color: "#666",
-    marginLeft: 4,
+    fontWeight: "normal",
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "white",
+  },
+  pickerInput: {
+    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: "#333",
+  },
+  pickerPlaceholder: {
+    color: "#999",
   },
   input: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 6,
-    padding: 10,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
+    backgroundColor: "white",
   },
-  inputRow: {
+  itemInputContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    gap: 8,
   },
   itemInput: {
     flex: 1,
   },
   scanButton: {
-    padding: 12,
-    marginLeft: 8,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 6,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "white",
   },
-  pickerContainer: {
-    height: 200,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 6,
-    overflow: "scroll",
-  },
-  picker: {
-    height: 50,
-  },
-  button: {
-    backgroundColor: "#0284c7",
-    padding: 16,
-    borderRadius: 6,
+  simulateButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 8,
+    paddingVertical: 16,
     alignItems: "center",
     marginTop: 8,
   },
-  buttonDisabled: {
-    backgroundColor: "#94a3b8",
-  },
-  buttonText: {
+  simulateButtonText: {
     color: "white",
-    fontWeight: "bold",
     fontSize: 16,
+    fontWeight: "600",
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 })

@@ -1,6 +1,6 @@
 "use client"
 
-import { useBudget } from "@/context/budget-context"
+import { useBudget } from "@/context/budgetContext"
 import { format } from "date-fns"
 import { Card, CardContent } from "@/components/ui/card"
 import { calculateDayInPeriod } from "@/utils/budget-calculator"

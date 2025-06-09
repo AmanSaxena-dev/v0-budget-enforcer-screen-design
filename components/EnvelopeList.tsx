@@ -1,171 +1,220 @@
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from "react-native"
-import { useBudget } from "../context/budget-context"
-import { formatCurrency, formatDaysWorth } from "../utils/budget-calculator"
-import { useNavigation } from "@react-navigation/native"
-import { Feather } from "@expo/vector-icons"
-import ProgressBar from "./ProgressBar"
+"use client"
 
-export default function EnvelopeList() {
+import { useState } from "react"
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal } from "react-native"
+import { useBudget } from "@/context/budgetContext"
+import { Ionicons } from "@expo/vector-icons"
+import { formatCurrency, formatDaysWorth } from "@/utils/budget-calculator"
+import { NewEnvelopeForm } from "./NewEnvelopeForm"
+
+export function EnvelopeList() {
   const { envelopes, setCurrentEnvelope } = useBudget()
-  const navigation = useNavigation()
-
-  const handleAddEnvelope = () => {
-    navigation.navigate("NewEnvelope" as never)
-  }
-
-  const renderEnvelope = ({ item: envelope }: any) => {
-    const dailyAmount = envelope.allocation / envelope.periodLength
-    const daysWorth = envelope.spent / dailyAmount
-    const percentSpent = (envelope.spent / envelope.allocation) * 100
-
-    // Determine progress bar color based on envelope status
-    let progressColor = "#22c55e" // green-500
-    if (envelope.color.includes("amber")) {
-      progressColor = "#f59e0b" // amber-500
-    } else if (envelope.color.includes("orange")) {
-      progressColor = "#ea580c" // orange-600
-    } else if (envelope.color.includes("red")) {
-      progressColor = "#ef4444" // red-500
-    }
-
-    return (
-      <TouchableOpacity
-        style={[styles.envelopeCard, { borderColor: progressColor }]}
-        onPress={() => setCurrentEnvelope(envelope)}
-      >
-        <View style={styles.envelopeContent}>
-          {/* Left side: Envelope name and total */}
-          <View style={styles.envelopeInfo}>
-            <Text style={styles.envelopeName}>{envelope.name}</Text>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total:</Text>
-              <Text style={styles.totalAmount}>{formatCurrency(envelope.allocation)}</Text>
-            </View>
-          </View>
-
-          {/* Right side: Progress bar and amounts */}
-          <View style={styles.progressSection}>
-            <ProgressBar progress={percentSpent} color={progressColor} />
-
-            <View style={styles.amountsRow}>
-              <View>
-                <Text style={styles.amountText}>
-                  {formatCurrency(envelope.spent)} <Text style={styles.daysText}>({formatDaysWorth(daysWorth)})</Text>
-                </Text>
-              </View>
-              <View>
-                <Text style={styles.amountText}>
-                  {formatCurrency(envelope.allocation - envelope.spent)} <Text style={styles.daysText}>left</Text>
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    )
-  }
+  const [showNewEnvelopeForm, setShowNewEnvelopeForm] = useState(false)
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Your Envelopes</Text>
-        <TouchableOpacity style={styles.addButton} onPress={handleAddEnvelope}>
-          <Feather name="plus-circle" size={16} color="#0284c7" />
+        <TouchableOpacity style={styles.addButton} onPress={() => setShowNewEnvelopeForm(true)}>
+          <Ionicons name="add" size={16} color="#007AFF" />
           <Text style={styles.addButtonText}>New Envelope</Text>
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={envelopes}
-        renderItem={renderEnvelope}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-      />
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {envelopes.map((envelope) => {
+          const dailyAmount = envelope.allocation / envelope.periodLength
+          const daysWorth = envelope.spent / dailyAmount
+          const percentSpent = (envelope.spent / envelope.allocation) * 100
+
+          // Determine progress bar color based on envelope status
+          let progressColor = "#22c55e"
+          if (envelope.color.includes("#f59e0b")) {
+            progressColor = "#f59e0b"
+          } else if (envelope.color.includes("#ea580c")) {
+            progressColor = "#ea580c"
+          } else if (envelope.color.includes("#dc2626")) {
+            progressColor = "#dc2626"
+          }
+
+          // Border color based on status
+          let borderColor = "#dcfce7"
+          if (envelope.color.includes("#f59e0b")) {
+            borderColor = "#fef3c7"
+          } else if (envelope.color.includes("#ea580c")) {
+            borderColor = "#fed7aa"
+          } else if (envelope.color.includes("#dc2626")) {
+            borderColor = "#fecaca"
+          }
+
+          return (
+            <TouchableOpacity
+              key={envelope.id}
+              style={[styles.envelopeCard, { borderColor }]}
+              onPress={() => setCurrentEnvelope(envelope)}
+            >
+              <View style={styles.envelopeContent}>
+                {/* Left side: Envelope name and total */}
+                <View style={styles.envelopeInfo}>
+                  <Text style={styles.envelopeName}>{envelope.name}</Text>
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Total:</Text>
+                    <Text style={styles.totalAmount}>{formatCurrency(envelope.allocation)}</Text>
+                  </View>
+                </View>
+
+                {/* Right side: Progress bar and amounts */}
+                <View style={styles.progressSection}>
+                  {/* Progress bar */}
+                  <View style={styles.progressBarContainer}>
+                    <View style={styles.progressBarBackground}>
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          { width: `${Math.min(percentSpent, 100)}%`, backgroundColor: progressColor },
+                        ]}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Spent and remaining amounts */}
+                  <View style={styles.amountRow}>
+                    <View style={styles.spentInfo}>
+                      <Text style={styles.amountText}>{formatCurrency(envelope.spent)}</Text>
+                      <Text style={styles.daysText}>({formatDaysWorth(daysWorth)})</Text>
+                    </View>
+                    <View style={styles.remainingInfo}>
+                      <Text style={styles.amountText}>{formatCurrency(envelope.allocation - envelope.spent)}</Text>
+                      <Text style={styles.remainingLabel}>left</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </TouchableOpacity>
+          )
+        })}
+      </ScrollView>
+
+      <Modal visible={showNewEnvelopeForm} animationType="slide" presentationStyle="pageSheet">
+        <NewEnvelopeForm onComplete={() => setShowNewEnvelopeForm(false)} />
+      </Modal>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
+    flex: 1,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
+    color: "#333",
   },
   addButton: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 8,
-    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: "#007AFF",
+    borderRadius: 6,
+    gap: 4,
   },
   addButtonText: {
-    marginLeft: 4,
+    color: "#007AFF",
     fontSize: 14,
-    color: "#0284c7",
+    fontWeight: "500",
   },
-  list: {
-    gap: 8,
+  scrollView: {
+    flex: 1,
   },
   envelopeCard: {
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
     elevation: 2,
-    borderLeftWidth: 4,
   },
   envelopeContent: {
     flexDirection: "row",
+    alignItems: "center",
   },
   envelopeInfo: {
     flex: 1,
+    marginRight: 16,
   },
   envelopeName: {
-    fontWeight: "bold",
     fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 4,
   },
   totalRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
   },
   totalLabel: {
     fontSize: 14,
     color: "#666",
+    marginRight: 4,
   },
   totalAmount: {
     fontSize: 14,
     fontWeight: "500",
-    marginLeft: 4,
+    color: "#333",
   },
   progressSection: {
     flex: 2,
-    paddingLeft: 12,
   },
-  amountsRow: {
+  progressBarContainer: {
+    marginBottom: 8,
+  },
+  progressBarBackground: {
+    height: 10,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 5,
+  },
+  amountRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 4,
+  },
+  spentInfo: {
+    alignItems: "flex-start",
+  },
+  remainingInfo: {
+    alignItems: "flex-end",
   },
   amountText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "500",
+    color: "#333",
   },
   daysText: {
+    fontSize: 12,
     color: "#666",
-    fontWeight: "normal",
+  },
+  remainingLabel: {
+    fontSize: 12,
+    color: "#666",
   },
 })

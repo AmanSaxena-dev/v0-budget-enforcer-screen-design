@@ -1,48 +1,27 @@
-"use client"
+import { View, StyleSheet } from "react-native"
+import { useBudget } from "../../context/budgetContext"
+import {WelcomeScreen}  from "../../components/welcomeScreen"
+import {PeriodInfo}  from "../../components/PeriodInfo"
+import { EnvelopeList } from "../../components/EnvelopeList"
+import { PurchaseSimulator } from "@/components/PurchaseSimulator"
+import {BudgetStatusScreen}  from "../../components/BudgetStatusScreen"
 
-import { useContext, useEffect } from "react"
-import { View, StyleSheet, ScrollView } from "react-native"
-import { BudgetContext, useBudget } from "../../context/budget-context"
-import { useNavigation } from "@react-navigation/native"
-import PeriodInfo from "../../components/PeriodInfo"
-import EnvelopeList from "../../components/EnvelopeList"
-import PurchaseSimulator from "../../components/PurchaseSimulator"
-import { SafeAreaView } from "react-native-safe-area-context"
+export default function DashboardScreen() {
+  const { hasActiveBudget } = useBudget()
 
-export default function HomeScreen() {
-  const { envelopes, setCurrentEnvelope, currentEnvelope, currentPurchase, statusResult } = useBudget()
-  const navigation = useNavigation()
-
-  // Set the first envelope as current when component mounts if none is selected
-  useEffect(() => {
-    if (envelopes.length > 0 && !currentEnvelope) {
-      setCurrentEnvelope(envelopes[0])
-    }
-  }, [envelopes])
-
-  // Navigate to status screen when a purchase is simulated
-  useEffect(() => {
-    if (currentPurchase && statusResult) {
-      navigation.navigate("Status" as never)
-    }
-  }, [currentPurchase, statusResult])
+  if (!hasActiveBudget) {
+    return <WelcomeScreen/>
+  }
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.content}>
-          <PeriodInfo />
-
-          <View style={styles.section}>
-            <EnvelopeList />
-          </View>
-
-          <View style={styles.section}>
-            <PurchaseSimulator />
-          </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+    <View style={styles.container}>
+      <PeriodInfo />
+      <View style={styles.content}>
+        <EnvelopeList />
+        <PurchaseSimulator />
+      </View>
+      <BudgetStatusScreen />
+    </View>
   )
 }
 
@@ -51,14 +30,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f5f5f5",
   },
-  scrollView: {
-    flex: 1,
-  },
   content: {
+    flex: 1,
     padding: 16,
-    gap: 16,
-  },
-  section: {
-    marginBottom: 16,
   },
 })
