@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useBudget } from "@/context/budgetContext"
+import { useBudget } from "@/context/budget-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatCurrency } from "@/utils/budget-calculator"
 import { PlusCircle, Scan } from "lucide-react"
-import { NewEnvelopeForm } from "@/components/NewEnvelopeForm"
+import { NewEnvelopeForm } from "@/components/new-envelope-form"
 
 export function PurchaseSimulator() {
   const {
@@ -68,7 +68,7 @@ export function PurchaseSimulator() {
               <div className="flex gap-2">
                 <Select
                   value={currentEnvelope?.id || ""}
-                  onValueChange={(value: any) => {
+                  onValueChange={(value) => {
                     if (value === "new") {
                       setShowNewEnvelopeForm(true)
                     } else {
@@ -129,7 +129,7 @@ export function PurchaseSimulator() {
                   disabled={!!currentPurchase}
                   className="flex-1"
                 />
-                <Button type="button" onClick={handleScanBarcode} disabled={!!currentPurchase}>
+                <Button type="button" variant="outline" onClick={handleScanBarcode} disabled={!!currentPurchase}>
                   <Scan className="h-4 w-4" />
                 </Button>
               </div>

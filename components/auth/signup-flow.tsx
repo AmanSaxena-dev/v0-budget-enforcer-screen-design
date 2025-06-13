@@ -316,7 +316,7 @@ export function SignupFlow({ onComplete }: SignupFlowProps) {
       </CardContent>
       <CardFooter className="flex justify-between">
         {step > 1 && (
-          <Button onClick={() => setStep(step - 1)}>
+          <Button variant="outline" onClick={() => setStep(step - 1)}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
