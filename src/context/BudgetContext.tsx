@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { createContext, useState, useEffect } from "react"
+import { createContext, useState, useEffect, useContext } from "react"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import type {
   Envelope,
@@ -15,8 +15,9 @@ import type {
   Bill,
   BillsEnvelope,
 } from "../types/budget"
-import { calculateStatus, updateEnvelopeStatus } from "../utils/budgetCalculator"
+import { calculateStatus, updateEnvelopeStatus, getCurrentDay, getStatusDetails } from "../utils/budgetCalculator"
 import { useAuth } from "./AuthContext"
+import { v4 as uuidv4 } from "uuid"
 
 // Storage keys
 const ENVELOPES_KEY = "budget_enforcer_envelopes"
@@ -27,21 +28,9 @@ const SHUFFLE_LIMITS_KEY = "budget_enforcer_shuffle_limits"
 
 // Sample suggested envelopes (for new users)
 export const suggestedEnvelopes = [
-  {
-    name: "Food",
-    allocation: 420,
-    periodLength: 14,
-  },
-  {
-    name: "Entertainment",
-    allocation: 210,
-    periodLength: 14,
-  },
-  {
-    name: "Transportation",
-    allocation: 140,
-    periodLength: 14,
-  },
+  { name: "Food", allocation: 400, spent: 0, periodLength: 14 },
+  { name: "Entertainment", allocation: 200, spent: 0, periodLength: 14 },
+  { name: "Transportation", allocation: 150, spent: 0, periodLength: 14 },
 ]
 
 interface BudgetContextType {
@@ -49,12 +38,12 @@ interface BudgetContextType {
   currentEnvelope: Envelope | null
   setCurrentEnvelope: (envelope: Envelope | null) => void
   statusResult: StatusResult | null
-  simulatePurchase: (purchase: Omit<Purchase, "id" | "date">) => void
+  simulatePurchase: (purchase: Omit<Purchase, "id">) => void
   resetSimulation: () => void
   confirmPurchase: () => void
   currentPurchase: Purchase | null
   addEnvelope: (envelope: Omit<Envelope, "id" | "color">) => void
-  updateEnvelope: (id: string, updates: Partial<Envelope>) => void
+  updateEnvelope: (envelope: Envelope) => void
   deleteEnvelope: (id: string) => void
   showStatusScreen: boolean
   setShowStatusScreen: (show: boolean) => void
@@ -67,16 +56,7 @@ interface BudgetContextType {
   currentPeriod: Period | null
   shuffleLimits: ShuffleLimit[]
   updateShuffleLimit: (envelopeId: string, maxAmount: number) => void
-  startNewPeriod: (
-    startDate: Date,
-    periodLength: number,
-    envelopes: Omit<Envelope, "id" | "color" | "startDate">[],
-    endDate?: Date,
-    billsData?: {
-      bills: Omit<Bill, "id" | "lastPaidDate">[]
-      initialBalance: number
-    },
-  ) => void
+  startNewPeriod: (startDate: Date, periodLength: number, envelopes: Omit<Envelope, "id" | "color">[]) => void
   hasActiveBudget: boolean
   getNextPeriods: () => Array<{
     id: string
@@ -262,71 +242,71 @@ const calculateNextPeriods = (
 }
 
 export function BudgetProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const userId = user?.id || "guest";
+  const { user } = useAuth()
+  const userId = user?.id || "guest"
 
-  const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [shuffleTransactions, setShuffleTransactions] = useState<ShuffleTransaction[]>([]);
-  const [periods, setPeriods] = useState<Period[]>([]);
-  const [shuffleLimits, setShuffleLimits] = useState<ShuffleLimit[]>([]);
-  const [hasActiveBudget, setHasActiveBudget] = useState(false);
+  const [envelopes, setEnvelopes] = useState<Envelope[]>([])
+  const [purchases, setPurchases] = useState<Purchase[]>([])
+  const [shuffleTransactions, setShuffleTransactions] = useState<ShuffleTransaction[]>([])
+  const [periods, setPeriods] = useState<Period[]>([])
+  const [shuffleLimits, setShuffleLimits] = useState<ShuffleLimit[]>([])
+  const [hasActiveBudget, setHasActiveBudget] = useState(false)
 
-  const [currentEnvelope, setCurrentEnvelope] = useState<Envelope | null>(null);
-  const [statusResult, setStatusResult] = useState<StatusResult | null>(null);
-  const [currentPurchase, setCurrentPurchase] = useState<Purchase | null>(null);
-  const [showStatusScreen, setShowStatusScreen] = useState(false);
-  const [showShuffleScreen, setShowShuffleScreen] = useState(false);
+  const [currentEnvelope, setCurrentEnvelope] = useState<Envelope | null>(null)
+  const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
+  const [currentPurchase, setCurrentPurchase] = useState<Purchase | null>(null)
+  const [showStatusScreen, setShowStatusScreen] = useState(false)
+  const [showShuffleScreen, setShowShuffleScreen] = useState(false)
 
-  const [billsEnvelope, setBillsEnvelope] = useState<BillsEnvelope | null>(null);
+  const [billsEnvelope, setBillsEnvelope] = useState<BillsEnvelope | null>(null)
 
   // Get the current period
-  const currentPeriod = periods.length > 0 ? periods[periods.length - 1] : null;
+  const currentPeriod = periods.length > 0 ? periods[periods.length - 1] : null
 
   // Load data from AsyncStorage when user changes
   useEffect(() => {
     const loadData = async () => {
       try {
         // Load envelopes
-        const envelopesJson = await AsyncStorage.getItem(`${ENVELOPES_KEY}_${userId}`);
+        const envelopesJson = await AsyncStorage.getItem(`${ENVELOPES_KEY}_${userId}`)
         if (envelopesJson) {
           const loadedEnvelopes = JSON.parse(envelopesJson).map((env: any) => ({
             ...env,
             startDate: new Date(env.startDate),
-          }));
-          setEnvelopes(loadedEnvelopes.map(updateEnvelopeStatus));
-          setHasActiveBudget(loadedEnvelopes.length > 0);
+          }))
+          setEnvelopes(loadedEnvelopes.map(updateEnvelopeStatus))
+          setHasActiveBudget(loadedEnvelopes.length > 0)
         } else {
-          setEnvelopes([]);
-          setHasActiveBudget(false);
+          setEnvelopes([])
+          setHasActiveBudget(false)
         }
 
         // Load purchases
-        const purchasesJson = await AsyncStorage.getItem(`${PURCHASES_KEY}_${userId}`);
+        const purchasesJson = await AsyncStorage.getItem(`${PURCHASES_KEY}_${userId}`)
         if (purchasesJson) {
           const loadedPurchases = JSON.parse(purchasesJson).map((purchase: any) => ({
             ...purchase,
             date: new Date(purchase.date),
-          }));
-          setPurchases(loadedPurchases);
+          }))
+          setPurchases(loadedPurchases)
         } else {
-          setPurchases([]);
+          setPurchases([])
         }
 
         // Load shuffle transactions
-        const shufflesJson = await AsyncStorage.getItem(`${SHUFFLES_KEY}_${userId}`);
+        const shufflesJson = await AsyncStorage.getItem(`${SHUFFLES_KEY}_${userId}`)
         if (shufflesJson) {
           const loadedShuffles = JSON.parse(shufflesJson).map((shuffle: any) => ({
             ...shuffle,
             date: new Date(shuffle.date),
-          }));
-          setShuffleTransactions(loadedShuffles);
+          }))
+          setShuffleTransactions(loadedShuffles)
         } else {
-          setShuffleTransactions([]);
+          setShuffleTransactions([])
         }
 
         // Load periods
-        const periodsJson = await AsyncStorage.getItem(`${PERIODS_KEY}_${userId}`);
+        const periodsJson = await AsyncStorage.getItem(`${PERIODS_KEY}_${userId}`)
         if (periodsJson) {
           const loadedPeriods = JSON.parse(periodsJson).map((period: any) => ({
             ...period,
@@ -340,24 +320,24 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
               ...transaction,
               date: new Date(transaction.date),
             })),
-          }));
-          setPeriods(loadedPeriods);
+          }))
+          setPeriods(loadedPeriods)
         } else {
-          setPeriods([]);
+          setPeriods([])
         }
 
         // Load shuffle limits
-        const limitsJson = await AsyncStorage.getItem(`${SHUFFLE_LIMITS_KEY}_${userId}`);
+        const limitsJson = await AsyncStorage.getItem(`${SHUFFLE_LIMITS_KEY}_${userId}`)
         if (limitsJson) {
-          setShuffleLimits(JSON.parse(limitsJson));
+          setShuffleLimits(JSON.parse(limitsJson))
         } else {
-          setShuffleLimits([]);
+          setShuffleLimits([])
         }
 
         // Load bills envelope
-        const billsJson = await AsyncStorage.getItem(`budget_enforcer_bills_${userId}`);
+        const billsJson = await AsyncStorage.getItem(`budget_enforcer_bills_${userId}`)
         if (billsJson) {
-          const loadedBills = JSON.parse(billsJson);
+          const loadedBills = JSON.parse(billsJson)
           setBillsEnvelope({
             ...loadedBills,
             nextDueDate: new Date(loadedBills.nextDueDate),
@@ -365,7 +345,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
               ...bill,
               lastPaidDate: bill.lastPaidDate ? new Date(bill.lastPaidDate) : undefined,
             })),
-          });
+          })
         } else {
           // Initialize empty bills envelope
           setBillsEnvelope({
@@ -381,448 +361,331 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
             isFullyFunded: true,
             hasReachedCushion: true,
             requiredPerPaycheck: 0,
-          });
+          })
         }
       } catch (error) {
-        console.error("Error loading data:", error);
+        console.error("Error loading data:", error)
       }
-    };
+    }
 
-    loadData();
-  }, [user, userId]);
+    loadData()
+  }, [user, userId])
 
   // Save data to AsyncStorage when it changes
   useEffect(() => {
-    if (!user) return;
+    if (!user) return
 
     const saveData = async () => {
       try {
-        await AsyncStorage.setItem(`${ENVELOPES_KEY}_${userId}`, JSON.stringify(envelopes));
-        await AsyncStorage.setItem(`${PURCHASES_KEY}_${userId}`, JSON.stringify(purchases));
-        await AsyncStorage.setItem(`${SHUFFLES_KEY}_${userId}`, JSON.stringify(shuffleTransactions));
-        await AsyncStorage.setItem(`${PERIODS_KEY}_${userId}`, JSON.stringify(periods));
-        await AsyncStorage.setItem(`${SHUFFLE_LIMITS_KEY}_${userId}`, JSON.stringify(shuffleLimits));
-        await AsyncStorage.setItem(`budget_enforcer_bills_${userId}`, JSON.stringify(billsEnvelope));
+        await AsyncStorage.setItem(`${ENVELOPES_KEY}_${userId}`, JSON.stringify(envelopes))
+        await AsyncStorage.setItem(`${PURCHASES_KEY}_${userId}`, JSON.stringify(purchases))
+        await AsyncStorage.setItem(`${SHUFFLES_KEY}_${userId}`, JSON.stringify(shuffleTransactions))
+        await AsyncStorage.setItem(`${PERIODS_KEY}_${userId}`, JSON.stringify(periods))
+        await AsyncStorage.setItem(`${SHUFFLE_LIMITS_KEY}_${userId}`, JSON.stringify(shuffleLimits))
+        await AsyncStorage.setItem(`budget_enforcer_bills_${userId}`, JSON.stringify(billsEnvelope))
       } catch (error) {
-        console.error("Error saving data:", error);
+        console.error("Error saving data:", error)
       }
-    };
+    }
 
-    saveData();
-  }, [user, userId, envelopes, purchases, shuffleTransactions, periods, shuffleLimits, billsEnvelope]);
+    saveData()
+  }, [user, userId, envelopes, purchases, shuffleTransactions, periods, shuffleLimits, billsEnvelope])
 
   // Calculate initial status when current envelope changes
   useEffect(() => {
     if (currentEnvelope) {
-      const result = calculateStatus(currentEnvelope);
-      setStatusResult(result);
+      const result = calculateStatus(currentEnvelope)
+      setStatusResult(result)
     }
-  }, [currentEnvelope]);
+  }, [currentEnvelope])
 
   // Simulate a purchase
-  const simulatePurchase = (purchaseData: Omit<Purchase, "id" | "date">) => {
-    if (currentEnvelope) {
-      const purchase: Purchase = {
-        ...purchaseData,
-        id: `purchase_${Date.now()}`,
-        date: new Date(),
-      };
+  const simulatePurchase = (purchaseData: Omit<Purchase, "id">) => {
+    if (!currentEnvelope) return
 
-      setCurrentPurchase(purchase);
-      const result = calculateStatus(currentEnvelope, purchase);
-      setStatusResult(result);
-      setShowStatusScreen(true);
+    const newPurchase: Purchase = {
+      ...purchaseData,
+      id: uuidv4(),
     }
-  };
+
+    setCurrentPurchase(newPurchase)
+
+    // Calculate the status after this purchase
+    const envelope = envelopes.find((env) => env.id === purchaseData.envelopeId)
+    if (!envelope) return
+
+    const currentStatus = calculateStatus(envelope)
+    const currentDay = getCurrentDay(envelope)
+    const remainingAmount = envelope.allocation - envelope.spent
+    const dailyAmount = envelope.allocation / envelope.periodLength
+
+    // Calculate days worth of spending after the purchase
+    const spentAfterPurchase = envelope.spent + purchaseData.amount
+    const daysWorthAfterPurchase = dailyAmount > 0 ? spentAfterPurchase / dailyAmount : 0
+
+    // Determine the status after the purchase
+    let status: StatusResult["status"]
+    if (purchaseData.amount > remainingAmount) {
+      status = "budget-breaker"
+    } else if (remainingAmount - purchaseData.amount <= 0) {
+      status = "envelope-empty"
+    } else {
+      // Calculate what percentage of the period has passed
+      const percentOfPeriodPassed = (currentDay / envelope.periodLength) * 100
+
+      // Calculate what percentage of the allocation would be spent after the purchase
+      const percentSpentAfter = ((envelope.spent + purchaseData.amount) / envelope.allocation) * 100
+
+      if (percentSpentAfter <= percentOfPeriodPassed * 0.8) {
+        status = "super-safe"
+      } else if (percentSpentAfter <= percentOfPeriodPassed * 0.9) {
+        status = "safe"
+      } else if (percentSpentAfter <= percentOfPeriodPassed * 1.1) {
+        status = "off-track"
+      } else if (percentSpentAfter <= percentOfPeriodPassed * 1.2) {
+        status = "danger"
+      } else {
+        status = "budget-breaker"
+      }
+    }
+
+    const statusDetails = getStatusDetails(status)
+
+    setStatusResult({
+      status,
+      statusText: statusDetails.text,
+      statusColor: statusDetails.color,
+      statusBorderColor: statusDetails.borderColor,
+      statusTextColor: statusDetails.textColor,
+      statusIcon: statusDetails.icon,
+      envelopeName: envelope.name,
+      currentDay,
+      periodLength: envelope.periodLength,
+      daysWorthOfSpending: currentStatus.daysWorth,
+      daysWorthAfterPurchase,
+      remainingAmount,
+    })
+
+    setShowStatusScreen(true)
+  }
 
   // Reset the simulation
   const resetSimulation = () => {
-    if (currentEnvelope) {
-      setCurrentPurchase(null);
-      const result = calculateStatus(currentEnvelope);
-      setStatusResult(result);
-      setShowStatusScreen(false);
-      setShowShuffleScreen(false);
-    }
-  };
+    setCurrentPurchase(null)
+    setStatusResult(null)
+    setShowStatusScreen(false)
+    setShowShuffleScreen(false)
+  }
 
   // Confirm the purchase
   const confirmPurchase = () => {
-    if (currentEnvelope && currentPurchase) {
-      // Add purchase to history
-      const newPurchases = [...purchases, currentPurchase];
-      setPurchases(newPurchases);
+    if (!currentPurchase || !currentEnvelope) return
 
-      // Update the envelope with the new spent amount
-      const updatedEnvelopes = envelopes.map((env) => {
-        if (env.id === currentEnvelope.id) {
-          const updated = {
-            ...env,
-            spent: env.spent + currentPurchase.amount,
-          };
-          return updateEnvelopeStatus(updated);
+    // Add the purchase to the list
+    setPurchases([...purchases, currentPurchase])
+
+    // Update the envelope's spent amount
+    const updatedEnvelopes = envelopes.map((env) => {
+      if (env.id === currentPurchase.envelopeId) {
+        return {
+          ...env,
+          spent: env.spent + currentPurchase.amount,
         }
-        return env;
-      });
-
-      const updatedEnvelope = updatedEnvelopes.find((env) => env.id === currentEnvelope.id)!;
-
-      setEnvelopes(updatedEnvelopes);
-      setCurrentEnvelope(updatedEnvelope);
-      setCurrentPurchase(null);
-
-      // Update current period transactions
-      if (currentPeriod) {
-        const updatedPeriods = periods.map((period) => {
-          if (period.id === currentPeriod.id) {
-            return {
-              ...period,
-              transactions: [...period.transactions, currentPurchase],
-              envelopes: updatedEnvelopes,
-            };
-          }
-          return period;
-        });
-        setPeriods(updatedPeriods);
       }
+      return env
+    })
 
-      // Recalculate status
-      const result = calculateStatus(updatedEnvelope);
-      setStatusResult(result);
-      setShowStatusScreen(false);
-      setShowShuffleScreen(false);
-    }
-  };
+    setEnvelopes(updatedEnvelopes)
+    resetSimulation()
+  }
 
   // Shuffle envelopes
   const shuffleEnvelopes = (targetEnvelopeId: string, purchase: Purchase, allocations: ShuffleAllocation[]) => {
-    // Get the target envelope
-    const targetEnvelope = envelopes.find((env) => env.id === targetEnvelopeId);
-    if (!targetEnvelope || !purchase) return;
+    // Calculate the total amount being shuffled
+    const totalShuffled = allocations.reduce((sum, alloc) => sum + alloc.amount, 0)
 
-    // Calculate how much we need to take from other envelopes
-    const remaining = targetEnvelope.allocation - targetEnvelope.spent;
-    const amountNeeded = Math.max(0, purchase.amount - remaining);
-
-    // Create shuffle transaction record
-    const shuffleTransaction: ShuffleTransaction = {
-      id: `shuffle_${Date.now()}`,
-      date: new Date(),
+    // Create a new shuffle transaction
+    const newTransaction: ShuffleTransaction = {
+      id: uuidv4(),
       targetEnvelopeId,
-      purchaseId: purchase.id,
       allocations,
-    };
-
-    // Add shuffle transaction to history
-    const newShuffleTransactions = [...shuffleTransactions, shuffleTransaction];
-    setShuffleTransactions(newShuffleTransactions);
-
-    // Add purchase to history
-    const newPurchases = [...purchases, purchase];
-    setPurchases(newPurchases);
-
-    // Update shuffle limits
-    const newShuffleLimits = [...shuffleLimits];
-    allocations.forEach((allocation) => {
-      const limitIndex = newShuffleLimits.findIndex((limit) => limit.envelopeId === allocation.envelopeId);
-      if (limitIndex >= 0) {
-        newShuffleLimits[limitIndex] = {
-          ...newShuffleLimits[limitIndex],
-          currentShuffled: newShuffleLimits[limitIndex].currentShuffled + allocation.amount,
-        };
-      }
-    });
-    setShuffleLimits(newShuffleLimits);
-
-    // Update all envelopes based on allocations
-    const updatedEnvelopes = envelopes.map((env) => {
-      // If this is the target envelope, increase its allocation
-      if (env.id === targetEnvelopeId) {
-        const updated = {
-          ...env,
-          allocation: env.allocation + amountNeeded,
-          spent: env.spent + purchase.amount,
-        };
-        return updateEnvelopeStatus(updated);
-      }
-
-      // If this envelope is in the allocations, reduce its allocation
-      const allocation = allocations.find((a) => a.envelopeId === env.id);
-      if (allocation && allocation.amount > 0) {
-        const updated = {
-          ...env,
-          allocation: env.allocation - allocation.amount,
-        };
-        return updateEnvelopeStatus(updated);
-      }
-
-      return env;
-    });
-
-    const updatedEnvelope = updatedEnvelopes.find((env) => env.id === targetEnvelopeId)!;
-
-    setEnvelopes(updatedEnvelopes);
-    setCurrentEnvelope(updatedEnvelope);
-    setCurrentPurchase(null);
-
-    // Update current period transactions and envelopes
-    if (currentPeriod) {
-      const updatedPeriods = periods.map((period) => {
-        if (period.id === currentPeriod.id) {
-          return {
-            ...period,
-            transactions: [...period.transactions, purchase, shuffleTransaction],
-            envelopes: updatedEnvelopes,
-          };
-        }
-        return period;
-      });
-      setPeriods(updatedPeriods);
+      date: new Date(),
     }
 
-    // Recalculate status
-    const result = calculateStatus(updatedEnvelope);
-    setStatusResult(result);
-    setShowStatusScreen(false);
-    setShowShuffleScreen(false);
-  };
+    setShuffleTransactions([...shuffleTransactions, newTransaction])
+
+    // Update the envelopes
+    const updatedEnvelopes = envelopes.map((env) => {
+      // If this is the target envelope, add the shuffled amount to its allocation
+      if (env.id === targetEnvelopeId) {
+        return {
+          ...env,
+          allocation: env.allocation + totalShuffled,
+          spent: env.spent + purchase.amount, // Also add the purchase amount to spent
+        }
+      }
+
+      // If this envelope is a source for the shuffle, reduce its allocation
+      const allocation = allocations.find((alloc) => alloc.envelopeId === env.id)
+      if (allocation) {
+        return {
+          ...env,
+          allocation: env.allocation - allocation.amount,
+        }
+      }
+
+      return env
+    })
+
+    setEnvelopes(updatedEnvelopes)
+
+    // Update shuffle limits
+    const updatedLimits = shuffleLimits.map((limit) => {
+      const allocation = allocations.find((alloc) => alloc.envelopeId === limit.envelopeId)
+      if (allocation) {
+        return {
+          ...limit,
+          currentShuffled: limit.currentShuffled + allocation.amount,
+        }
+      }
+      return limit
+    })
+
+    setShuffleLimits(updatedLimits)
+
+    // Add the purchase to the list
+    setPurchases([...purchases, purchase])
+
+    // Reset the simulation state
+    resetSimulation()
+  }
 
   // Add a new envelope
   const addEnvelope = (envelope: Omit<Envelope, "id" | "color">) => {
     const newEnvelope: Envelope = {
       ...envelope,
-      id: `env_${Date.now()}`,
-      color: '#dcfce7', // Default color (green-100), will be updated
-    };
+      id: uuidv4(),
+      color: getRandomColor(),
+    }
 
-    const updatedEnvelope = updateEnvelopeStatus(newEnvelope);
-    const newEnvelopes = [...envelopes, updatedEnvelope];
-    setEnvelopes(newEnvelopes);
-    setHasActiveBudget(true);
+    setEnvelopes([...envelopes, newEnvelope])
 
-    // Add shuffle limit for the new envelope
+    // Initialize shuffle limit for the new envelope
     setShuffleLimits([
       ...shuffleLimits,
       {
-        envelopeId: updatedEnvelope.id,
-        maxAmount: updatedEnvelope.allocation * 0.2, // Default 20% limit
+        envelopeId: newEnvelope.id,
+        maxAmount: 0,
         currentShuffled: 0,
       },
-    ]);
-
-    // Update current period envelopes
-    if (currentPeriod) {
-      const updatedPeriods = periods.map((period) => {
-        if (period.id === currentPeriod.id) {
-          return {
-            ...period,
-            envelopes: newEnvelopes,
-          };
-        }
-        return period;
-      });
-      setPeriods(updatedPeriods);
-    }
-  };
+    ])
+  }
 
   // Update an envelope
-  const updateEnvelope = (id: string, updates: Partial<Envelope>) => {
-    const updatedEnvelopes = envelopes.map((env) => {
-      if (env.id === id) {
-        const updated = { ...env, ...updates };
-        return updateEnvelopeStatus(updated);
-      }
-      return env;
-    });
-
-    setEnvelopes(updatedEnvelopes);
-
-    // Update current envelope if it's the one being updated
-    if (currentEnvelope && currentEnvelope.id === id) {
-      const updatedEnvelope = updatedEnvelopes.find((env) => env.id === id)!;
-      setCurrentEnvelope(updatedEnvelope);
-    }
-
-    // Update current period envelopes
-    if (currentPeriod) {
-      const updatedPeriods = periods.map((period) => {
-        if (period.id === currentPeriod.id) {
-          return {
-            ...period,
-            envelopes: updatedEnvelopes,
-          };
-        }
-        return period;
-      });
-      setPeriods(updatedPeriods);
-    }
-  };
+  const updateEnvelope = (updatedEnvelope: Envelope) => {
+    setEnvelopes(envelopes.map((env) => (env.id === updatedEnvelope.id ? updatedEnvelope : env)))
+  }
 
   // Delete an envelope
   const deleteEnvelope = (id: string) => {
-    const newEnvelopes = envelopes.filter((env) => env.id !== id);
-    setEnvelopes(newEnvelopes);
-    setHasActiveBudget(newEnvelopes.length > 0);
-
-    // Remove shuffle limits for this envelope
-    setShuffleLimits(shuffleLimits.filter((limit) => limit.envelopeId !== id));
-
-    // Reset current envelope if it's the one being deleted
-    if (currentEnvelope && currentEnvelope.id === id) {
-      setCurrentEnvelope(null);
-      setStatusResult(null);
-    }
-
-    // Update current period envelopes
-    if (currentPeriod) {
-      const updatedPeriods = periods.map((period) => {
-        if (period.id === currentPeriod.id) {
-          return {
-            ...period,
-            envelopes: newEnvelopes,
-          };
-        }
-        return period;
-      });
-      setPeriods(updatedPeriods);
-    }
-  };
+    setEnvelopes(envelopes.filter((env) => env.id !== id))
+    // Also remove related shuffle limits
+    setShuffleLimits(shuffleLimits.filter((limit) => limit.envelopeId !== id))
+  }
 
   // Update shuffle limit for an envelope
   const updateShuffleLimit = (envelopeId: string, maxAmount: number) => {
-    const limitIndex = shuffleLimits.findIndex((limit) => limit.envelopeId === envelopeId);
-
-    if (limitIndex >= 0) {
-      const newLimits = [...shuffleLimits];
-      newLimits[limitIndex] = {
-        ...newLimits[limitIndex],
-        maxAmount,
-      };
-      setShuffleLimits(newLimits);
-    } else {
-      setShuffleLimits([
-        ...shuffleLimits,
-        {
-          envelopeId,
+    const updatedLimits = shuffleLimits.map((limit) => {
+      if (limit.envelopeId === envelopeId) {
+        return {
+          ...limit,
           maxAmount,
-          currentShuffled: 0,
-        },
-      ]);
-    }
-  };
+        }
+      }
+      return limit
+    })
+
+    setShuffleLimits(updatedLimits)
+  }
 
   // Start a new period
-  const startNewPeriod = (
-    startDate: Date,
-    periodLength: number,
-    envelopeData: Omit<Envelope, "id" | "color" | "startDate">[],
-    providedEndDate?: Date,
-    billsData?: {
-      bills: Omit<Bill, "id" | "lastPaidDate">[]
-      initialBalance: number
-    },
-  ) => {
-    // Use provided end date or calculate it
-    const endDate =
-      providedEndDate ||
-      (() => {
-        const calculated = new Date(startDate);
-        calculated.setDate(startDate.getDate() + periodLength - 1);
-        calculated.setHours(23, 59, 59, 999);
-        return calculated;
-      })();
-
-    // Ensure end date is set to end of day
-    if (!providedEndDate) {
-      endDate.setHours(23, 59, 59, 999);
-    }
-
-    // Create new envelopes for the period
-    const newEnvelopes = envelopeData.map((envData) => {
-      // Check if there's an existing envelope with the same name
-      const existingEnvelope = envelopes.find((env) => env.name === envData.name);
-
-      const newEnvelope: Envelope = {
-        ...envData,
-        id: `env_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        startDate,
-        color: '#dcfce7', // Will be updated
-        // If there's an existing envelope, calculate previousRemaining
-        previousRemaining: existingEnvelope ? Math.max(0, existingEnvelope.allocation - existingEnvelope.spent) : 0,
-      };
-
-      return updateEnvelopeStatus(newEnvelope);
-    });
-
-    // Create new period
-    const newPeriod: Period = {
-      id: `period_${Date.now()}`,
+  const startNewPeriod = (startDate: Date, periodLength: number, newEnvelopes: Omit<Envelope, "id" | "color">[]) => {
+    // Create new envelopes with IDs and colors
+    const envelopesWithIds = newEnvelopes.map((env) => ({
+      ...env,
+      id: uuidv4(),
+      color: getRandomColor(),
       startDate,
-      endDate,
-      envelopes: newEnvelopes,
-      transactions: [],
-    };
+      periodLength,
+    }))
 
-    // Add new period to periods
-    setPeriods([...periods, newPeriod]);
+    setEnvelopes(envelopesWithIds)
 
-    // Update current envelopes
-    setEnvelopes(newEnvelopes);
-    setHasActiveBudget(true);
-
-    // Reset current envelope
-    setCurrentEnvelope(null);
-    setStatusResult(null);
-
-    // Reset shuffle limits
-    const newShuffleLimits = newEnvelopes.map((env) => ({
+    // Initialize shuffle limits for all envelopes
+    const newShuffleLimits = envelopesWithIds.map((env) => ({
       envelopeId: env.id,
-      maxAmount: env.allocation * 0.2, // Default 20% limit
+      maxAmount: 0,
       currentShuffled: 0,
-    }));
-    setShuffleLimits(newShuffleLimits);
+    }))
 
-    // Set up bills envelope if bills data is provided
-    if (billsData && billsData.bills.length > 0) {
-      const newBills = billsData.bills.map((bill) => ({
-        ...bill,
-        id: `bill_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        lastPaidDate: undefined,
-      }));
+    setShuffleLimits(newShuffleLimits)
 
-      const totalMonthlyBills = newBills.reduce((sum, bill) => sum + bill.amount, 0);
-      const cushionAmount = totalMonthlyBills * 0.15; // 15% cushion
-      const targetAmount = totalMonthlyBills + cushionAmount;
-      const currentBalance = billsData.initialBalance;
+    // Reset other state
+    setPurchases([])
+    setShuffleTransactions([])
+    setCurrentEnvelope(null)
+    resetSimulation()
+  }
 
-      // Calculate funding status
-      const isFullyFunded = currentBalance >= totalMonthlyBills;
-      const hasReachedCushion = currentBalance >= targetAmount;
+  // Helper function to generate random colors for envelopes
+  const getRandomColor = () => {
+    const colors = [
+      "bg-blue-500",
+      "bg-green-500",
+      "bg-yellow-500",
+      "bg-purple-500",
+      "bg-pink-500",
+      "bg-indigo-500",
+      "bg-red-500",
+      "bg-orange-500",
+    ]
+    return colors[Math.floor(Math.random() * colors.length)]
+  }
 
-      // Find next due bill
-      const today = new Date();
-      const upcomingBills = newBills
-        .map((bill) => {
-          const thisMonth = new Date(today.getFullYear(), today.getMonth(), bill.dueDay);
-          const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, bill.dueDay);
-          return {
-            ...bill,
-            dueDate: thisMonth >= today ? thisMonth : nextMonth,
-          };
-        })
-        .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+  return (
+    <BudgetContext.Provider
+      value={{
+        envelopes,
+        purchases,
+        shuffleTransactions,
+        shuffleLimits,
+        currentEnvelope,
+        currentPurchase,
+        statusResult,
+        showStatusScreen,
+        showShuffleScreen,
+        setCurrentEnvelope,
+        addEnvelope,
+        updateEnvelope,
+        deleteEnvelope,
+        simulatePurchase,
+        confirmPurchase,
+        resetSimulation,
+        startNewPeriod,
+        shuffleEnvelopes,
+        updateShuffleLimit,
+        setShowShuffleScreen,
+      }}
+    >
+      {children}
+    </BudgetContext.Provider>
+  )
+}
 
-      const nextDueDate = upcomingBills.length > 0 ? upcomingBills[0].dueDate : new Date();
-      const nextDueAmount = upcomingBills.length > 0 ? upcomingBills[0].amount : 0;
-
-      // Calculate required per paycheck based on user preferences
-      let requiredPerPaycheck = 0;
-      if (user?.preferences && !hasReachedCushion) {
-        const amountNeeded = targetAmount - currentBalance;
-
-        // Calculate based on paycheck frequency
-        switch (user.preferences.paycheckFrequency) {
-          case "weekly":
-            requiredPerPaycheck = totalMonthlyBills / 4.33; // Average weeks per month
-            break;
-          case "biweekly":
+export const useBudget = () => {
+  const context = useContext(BudgetContext)
+  if (context === undefined) {
+    throw new Error("useBudget must be used within a BudgetProvider")
+  }
+  return context
+}
