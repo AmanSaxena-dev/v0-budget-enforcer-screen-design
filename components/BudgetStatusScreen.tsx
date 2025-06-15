@@ -1,11 +1,13 @@
-import { View, Text, TouchableOpacity, StyleSheet, Modal } from "react-native"
+import { EnvelopeShuffle } from "@/components/EnvelopeShuffle"
+import { StatusScreen } from "@/components/StatusScreen"
 import { useBudget } from "@/context/budgetContext"
-import { StatusScreen } from "./StatusScreen"
-import { EnvelopeShuffle } from "./EnvelopeShuffle"
-import { Ionicons } from "@expo/vector-icons"
-import { formatCurrency, calculateStatus, getStatusDetails } from "@/utils/budget-calculator"
+import { calculateStatus, formatCurrency, getStatusDetails } from "@/utils/budget-calculator"
+import React from "react"
+import { ScrollView, StyleSheet, View } from "react-native"
+import { Button } from "react-native-paper"
+import Icon from "react-native-vector-icons/MaterialCommunityIcons"
 
-export function BudgetStatusScreen() {
+export default function BudgetStatusScreen() {
   const {
     statusResult,
     confirmPurchase,
@@ -21,82 +23,45 @@ export function BudgetStatusScreen() {
     return null
   }
 
-  // If we're showing the shuffle screen, render the envelope shuffle component
   if (showShuffleScreen) {
-    return (
-      <Modal visible={true} animationType="slide" presentationStyle="pageSheet">
-        <EnvelopeShuffle onCancel={() => setShowShuffleScreen(false)} onComplete={resetSimulation} />
-      </Modal>
-    )
+    return <EnvelopeShuffle onCancel={() => setShowShuffleScreen(false)} onComplete={resetSimulation} />
   }
 
-  // Calculate the current status (without the purchase)
   const currentStatus = calculateStatus(currentEnvelope)
   const currentStatusDetails = getStatusDetails(currentStatus.status)
 
-  // Format the day info
   const dayInfo = `Day ${statusResult.currentDay} of ${statusResult.periodLength}`
-
-  // Format the current spend
   const currentSpendText = `Current spend: ${Math.round(statusResult.daysWorthOfSpending * 10) / 10} days`
-
-  // Calculate tooltip text
   const tooltipText = `Note: You've currently spent ${Math.round(statusResult.daysWorthOfSpending * 10) / 10} days' worth of the money in this envelope`
-
-  // Purchase text
   const purchaseText = currentPurchase
     ? `With this purchase: ${formatCurrency(currentPurchase.amount)}${currentPurchase.item ? ` on ${currentPurchase.item}` : ""}`
     : ""
 
-  // Get the appropriate icon based on status
-  let iconName: keyof typeof Ionicons.glyphMap
-  switch (statusResult.statusIcon) {
-    case "check":
-      iconName = "checkmark"
-      break
-    case "thumbs-up":
-      iconName = "thumbs-up"
-      break
-    case "alert-triangle":
-      iconName = "warning"
-      break
-    case "thumbs-down":
-      iconName = "thumbs-down"
-      break
-    case "x-circle":
-      iconName = "close-circle"
-      break
-    default:
-      iconName = "checkmark"
+  // Icon mapping
+  const iconMap: Record<string, { name: string; color: string; size: number }> = {
+    "check": { name: "check-circle", color: "#fff", size: 96 },
+    "thumbs-up": { name: "thumb-up", color: "#22c55e", size: 96 },
+    "alert-triangle": { name: "alert", color: "#f59e42", size: 96 },
+    "thumbs-down": { name: "thumb-down", color: "#ef4444", size: 96 },
+    "x-circle": { name: "close-circle", color: "#ef4444", size: 96 },
+  }
+  const smallIconMap: Record<string, { name: string; color: string; size: number }> = {
+    "check": { name: "check-circle", color: "#fff", size: 32 },
+    "thumbs-up": { name: "thumb-up", color: "#fff", size: 32 },
+    "alert-triangle": { name: "alert", color: "#fff", size: 32 },
+    "thumbs-down": { name: "thumb-down", color: "#fff", size: 32 },
+    "x-circle": { name: "close-circle", color: "#fff", size: 32 },
   }
 
-  // Get the current state icon
-  let currentStateIconName: keyof typeof Ionicons.glyphMap
-  switch (currentStatusDetails.icon) {
-    case "check":
-      currentStateIconName = "checkmark"
-      break
-    case "thumbs-up":
-      currentStateIconName = "thumbs-up"
-      break
-    case "alert-triangle":
-      currentStateIconName = "warning"
-      break
-    case "thumbs-down":
-      currentStateIconName = "thumbs-down"
-      break
-    case "x-circle":
-      currentStateIconName = "close-circle"
-      break
-    default:
-      currentStateIconName = "checkmark"
-  }
+  const iconProps = iconMap[statusResult.statusIcon] || iconMap["check"]
+  const icon = <Icon {...iconProps} style={styles.icon} />
 
-  // Determine subtext based on status
+  const currentStateIconProps = smallIconMap[currentStatusDetails.icon] || smallIconMap["check"]
+  const currentStateIcon = <Icon {...currentStateIconProps} style={styles.icon} />
+
+  // Subtext logic
   let subtext = ""
   const daysAfter = Math.round(statusResult.daysWorthAfterPurchase * 10) / 10
-
-  // Check if this purchase would exactly use up the allocation
   const wouldExactlyUseUpAllocation =
     currentPurchase &&
     statusResult.remainingAmount > 0 &&
@@ -125,7 +90,6 @@ export function BudgetStatusScreen() {
       break
   }
 
-  // Handle the "Yes" button click for budget-breaker or envelope-empty status
   const handleYesClick = () => {
     if (statusResult.status === "budget-breaker" || statusResult.status === "envelope-empty") {
       setShowShuffleScreen(true)
@@ -135,61 +99,53 @@ export function BudgetStatusScreen() {
   }
 
   return (
-    <Modal visible={true} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.container}>
-        <StatusScreen
-          icon={<Ionicons name={iconName} size={96} color="white" />}
-          text={statusResult.statusText}
-          color={statusResult.statusColor}
-          borderColor={statusResult.statusBorderColor}
-          textColor={statusResult.statusTextColor}
-          topText={purchaseText}
-          subtext={subtext}
-          isDivided={true}
-          dayInfo={dayInfo}
-          currentSpend={currentSpendText}
-          topBgColor={currentStatusDetails.color}
-          topIcon={<Ionicons name={currentStateIconName} size={32} color="white" />}
-          tooltipText={tooltipText}
-          showActionButtons={!!currentPurchase}
-          onYesClick={handleYesClick}
-          onNoClick={resetSimulation}
-          showDivider={true}
-          statusText="Current State"
-          leftStatusText={currentStatusDetails.text}
-          status={statusResult.status}
-        />
+    <ScrollView contentContainerStyle={styles.container}>
+      <StatusScreen
+        icon={icon}
+        text={statusResult.statusText}
+        color={statusResult.statusColor}
+        borderColor={statusResult.statusBorderColor}
+        textColor={statusResult.statusTextColor}
+        topText={purchaseText}
+        subtext={subtext}
+        isDivided={true}
+        dayInfo={dayInfo}
+        currentSpend={currentSpendText}
+        topBgColor={currentStatusDetails.color}
+        topIcon={currentStateIcon}
+        tooltipText={tooltipText}
+        showActionButtons={!!currentPurchase}
+        onYesClick={handleYesClick}
+        onNoClick={resetSimulation}
+        showDivider={true}
+        statusText="Current State"
+        leftStatusText={currentStatusDetails.text}
+        status={statusResult.status}
+      />
 
-        <View style={styles.buttonContainer}>
-          {!currentPurchase && (
-            <TouchableOpacity style={styles.backButton} onPress={resetSimulation}>
-              <Text style={styles.backButtonText}>Back to Home Screen</Text>
-            </TouchableOpacity>
-          )}
+      {!currentPurchase && (
+        <View style={styles.buttonRow}>
+          <Button mode="outlined" onPress={resetSimulation}>
+            Back to Home Screen
+          </Button>
         </View>
-      </View>
-    </Modal>
+      )}
+    </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  buttonContainer: {
     padding: 16,
-    alignItems: "flex-end",
+    flexGrow: 1,
+    backgroundColor: "#fff",
   },
-  backButton: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 16,
   },
-  backButtonText: {
-    color: "#666",
-    fontSize: 16,
+  icon: {
+    alignSelf: "center",
   },
 })

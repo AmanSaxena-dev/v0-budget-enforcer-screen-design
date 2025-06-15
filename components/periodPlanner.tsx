@@ -1,16 +1,37 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { useBudget } from "@/context/budgetContext"
 import { useAuth } from "@/context/authContext"
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Trash2, Save, Check, X, Settings } from "lucide-react"
-import { format } from "date-fns"
+import { useBudget } from "@/context/budgetContext"
 import { formatCurrency } from "@/utils/budget-calculator"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { format } from "date-fns"
+import { useEffect, useMemo, useState } from "react"
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from "react-native"
+import Icon from "react-native-vector-icons/MaterialCommunityIcons"
+
+interface Period {
+  id: string
+  startDate: Date
+  endDate: Date
+  periodLength: number
+  isPlanned: boolean
+  isCurrent?: boolean
+}
+
+interface PeriodPlan {
+  envelopes: Array<{
+    name: string
+    allocation: number
+    spent: number
+    periodLength: number
+  }>
+}
 
 export function PeriodPlannerV2() {
   const { envelopes, getNextPeriods, savePeriodPlan, getPeriodPlan, deletePeriodPlan } = useBudget()
@@ -25,9 +46,16 @@ export function PeriodPlannerV2() {
     }>
   >([])
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [nextPeriods, setNextPeriods] = useState<Period[]>([])
 
-  // Use useMemo to prevent recalculations on every render
-  const nextPeriods = useMemo(() => getNextPeriods(), [getNextPeriods])
+  // Load next periods
+  useEffect(() => {
+    const loadPeriods = async () => {
+      const periods = await getNextPeriods()
+      setNextPeriods(periods)
+    }
+    loadPeriods()
+  }, [getNextPeriods])
 
   // Set initial selected period only once when component mounts
   useEffect(() => {
@@ -43,34 +71,37 @@ export function PeriodPlannerV2() {
 
   // Load plan when period is selected
   useEffect(() => {
-    if (selectedPeriodId && selectedPeriod) {
-      if (selectedPeriod.isCurrent) {
-        // For current period, use the actual envelopes
-        setPlannedEnvelopes(
-          envelopes.map((env) => ({
-            name: env.name,
-            allocation: env.allocation,
-            spent: env.spent,
-            periodLength: env.periodLength,
-          })),
-        )
-      } else {
-        const existingPlan = getPeriodPlan(selectedPeriodId)
-        if (existingPlan) {
-          setPlannedEnvelopes(existingPlan)
-        } else {
-          // Initialize with current envelopes as template
+    const loadPlan = async () => {
+      if (selectedPeriodId && selectedPeriod) {
+        if (selectedPeriod.isCurrent) {
+          // For current period, use the actual envelopes
           setPlannedEnvelopes(
             envelopes.map((env) => ({
               name: env.name,
               allocation: env.allocation,
-              spent: 0,
-              periodLength: selectedPeriod?.periodLength || 14,
+              spent: env.spent,
+              periodLength: env.periodLength,
             })),
           )
+        } else {
+          const existingPlan = await getPeriodPlan(selectedPeriodId)
+          if (existingPlan) {
+            setPlannedEnvelopes(existingPlan.envelopes)
+          } else {
+            // Initialize with current envelopes as template
+            setPlannedEnvelopes(
+              envelopes.map((env) => ({
+                name: env.name,
+                allocation: env.allocation,
+                spent: 0,
+                periodLength: selectedPeriod?.periodLength || 14,
+              })),
+            )
+          }
         }
       }
     }
+    loadPlan()
   }, [selectedPeriodId, envelopes, getPeriodPlan, selectedPeriod])
 
   const handleAddEnvelope = () => {
@@ -98,7 +129,7 @@ export function PeriodPlannerV2() {
     setPlannedEnvelopes(newEnvelopes)
   }
 
-  const handleSavePlan = () => {
+  const handleSavePlan = async () => {
     if (!selectedPeriodId || selectedPeriod?.isCurrent) return
 
     // Validate inputs
@@ -109,17 +140,17 @@ export function PeriodPlannerV2() {
     }
 
     // Save the plan
-    savePeriodPlan(selectedPeriodId, plannedEnvelopes)
+    await savePeriodPlan(selectedPeriodId, { envelopes: plannedEnvelopes })
 
     // Show success message
     setSaveMessage("Plan saved successfully!")
     setTimeout(() => setSaveMessage(null), 3000)
   }
 
-  const handleDeletePlan = () => {
+  const handleDeletePlan = async () => {
     if (!selectedPeriodId || selectedPeriod?.isCurrent) return
 
-    deletePeriodPlan(selectedPeriodId)
+    await deletePeriodPlan(selectedPeriodId)
 
     // Reset to template
     setPlannedEnvelopes(
@@ -142,168 +173,166 @@ export function PeriodPlannerV2() {
 
   if (!user?.preferences) {
     return (
-      <Card>
-        <CardContent className="p-6">
-          <p className="text-center text-muted-foreground">
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <Text style={styles.setupMessage}>
             Please complete your initial setup to access period planning.
-          </p>
-        </CardContent>
-      </Card>
+          </Text>
+        </View>
+      </View>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            Plan Future Budget Periods
-            <Button>
-              <Settings className="h-4 w-4 mr-2" />
-              Period Settings
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            Your budget periods are based on your {user.preferences.paycheckFrequency} paycheck schedule
-            {user.preferences.paycheckFrequency === "monthly" &&
-              ` (${format(user.preferences.nextPayday, "do")} of each month)`}
-            {user.preferences.paycheckFrequency === "semimonthly" &&
-              user.preferences.semiMonthlyPayDays &&
-              ` (${user.preferences.semiMonthlyPayDays[0]}${getOrdinalSuffix(user.preferences.semiMonthlyPayDays[0])} and ${user.preferences.semiMonthlyPayDays[1]}${getOrdinalSuffix(user.preferences.semiMonthlyPayDays[1])} of each month)`}
-            . Plan your envelope allocations for the next periods.
-          </p>
+    <ScrollView style={styles.scrollView}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Plan Future Budget Periods</Text>
+          <TouchableOpacity style={styles.settingsButton}>
+            <Icon name="cog" size={20} color="#007AFF" />
+            <Text style={styles.settingsButtonText}>Period Settings</Text>
+          </TouchableOpacity>
+        </View>
 
-          <Tabs value={selectedPeriodId || ""} onValueChange={setSelectedPeriodId}>
-            <TabsList className="grid w-full grid-cols-3">
-              {nextPeriods.map((period, index) => (
-                <TabsTrigger key={period.id} value={period.id} className="relative">
-                  <div className="text-center">
-                    <div className="font-medium">
-                      {period.isCurrent ? "Current Period" : index === 1 ? "Next Period" : `Period ${index}`}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {format(period.startDate, "MMM d")} - {format(period.endDate, "MMM d")}
-                    </div>
-                    {period.isPlanned && !period.isCurrent && (
-                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
-                    )}
-                  </div>
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        <Text style={styles.description}>
+          Your budget periods are based on your {user.preferences.paycheckFrequency} paycheck schedule
+          {user.preferences.paycheckFrequency === "monthly" &&
+            ` (${format(user.preferences.nextPayday, "do")} of each month)`}
+          {user.preferences.paycheckFrequency === "semimonthly" &&
+            user.preferences.semiMonthlyPayDays &&
+            ` (${user.preferences.semiMonthlyPayDays[0]}${getOrdinalSuffix(user.preferences.semiMonthlyPayDays[0])} and ${user.preferences.semiMonthlyPayDays[1]}${getOrdinalSuffix(user.preferences.semiMonthlyPayDays[1])} of each month)`}
+          . Plan your envelope allocations for the next periods.
+        </Text>
 
-            {nextPeriods.map((period, index) => (
-              <TabsContent key={period.id} value={period.id} className="mt-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg">
-                          {format(period.startDate, "MMMM d, yyyy")} - {format(period.endDate, "MMMM d, yyyy")}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {period.periodLength} day period
-                          {period.isCurrent && " (Currently Active)"}
-                          {user.preferences?.paycheckFrequency === "monthly" && " • Monthly paycheck"}
-                          {user.preferences?.paycheckFrequency === "semimonthly" && " • Semi-monthly paycheck"}
-                          {user.preferences?.paycheckFrequency === "weekly" && " • Weekly paycheck"}
-                          {user.preferences?.paycheckFrequency === "biweekly" && " • Bi-weekly paycheck"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">Total Budget</div>
-                        <div className="text-lg font-bold">{formatCurrency(totalBudget)}</div>
-                        {!period.isCurrent && (
-                          <div className="text-xs text-muted-foreground">
-                            Target: {formatCurrency(user.preferences.paycheckAmount)}
-                          </div>
-                        )}
-                      </div>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {saveMessage && (
-                      <Alert
-                        variant={saveMessage.includes("successfully") ? "default" : "destructive"}
-                        className="mb-4"
-                      >
-                        <AlertDescription>{saveMessage}</AlertDescription>
-                      </Alert>
-                    )}
+        <View style={styles.tabsContainer}>
+          {nextPeriods.map((period, index) => (
+            <TouchableOpacity
+              key={period.id}
+              style={[
+                styles.tab,
+                selectedPeriodId === period.id && styles.activeTab,
+              ]}
+              onPress={() => setSelectedPeriodId(period.id)}
+            >
+              <Text style={[styles.tabTitle, selectedPeriodId === period.id && styles.activeTabText]}>
+                {period.isCurrent ? "Current Period" : index === 1 ? "Next Period" : `Period ${index}`}
+              </Text>
+              <Text style={styles.tabDate}>
+                {format(period.startDate, "MMM d")} - {format(period.endDate, "MMM d")}
+              </Text>
+              {period.isPlanned && !period.isCurrent && (
+                <View style={styles.plannedIndicator} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
 
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <h4 className="font-medium">{period.isCurrent ? "Current Envelopes" : "Planned Envelopes"}</h4>
-                        {period.isPlanned && !period.isCurrent && (
-                          <div className="flex items-center text-sm text-green-600">
-                            <Check className="h-4 w-4 mr-1" />
-                            Plan Saved
-                          </div>
-                        )}
-                      </div>
+        {selectedPeriod && (
+          <View style={styles.periodContent}>
+            <View style={styles.periodHeader}>
+              <View>
+                <Text style={styles.periodTitle}>
+                  {format(selectedPeriod.startDate, "MMMM d, yyyy")} -{" "}
+                  {format(selectedPeriod.endDate, "MMMM d, yyyy")}
+                </Text>
+                <Text style={styles.periodSubtitle}>
+                  {selectedPeriod.periodLength} day period
+                  {selectedPeriod.isCurrent && " (Currently Active)"}
+                  {user.preferences?.paycheckFrequency === "monthly" && " • Monthly paycheck"}
+                  {user.preferences?.paycheckFrequency === "semimonthly" && " • Semi-monthly paycheck"}
+                  {user.preferences?.paycheckFrequency === "weekly" && " • Weekly paycheck"}
+                  {user.preferences?.paycheckFrequency === "biweekly" && " • Bi-weekly paycheck"}
+                </Text>
+              </View>
+              <View style={styles.budgetSummary}>
+                <Text style={styles.budgetLabel}>Total Budget</Text>
+                <Text style={styles.budgetAmount}>{formatCurrency(totalBudget)}</Text>
+                {!selectedPeriod.isCurrent && (
+                  <Text style={styles.targetAmount}>
+                    Target: {formatCurrency(user.preferences.paycheckAmount)}
+                  </Text>
+                )}
+              </View>
+            </View>
 
-                      {plannedEnvelopes.map((envelope, index) => (
-                        <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                          <div className="col-span-6">
-                            <Input
-                              placeholder="Envelope name"
-                              value={envelope.name}
-                              onChange={(e) => handleEnvelopeChange(index, "name", e.target.value)}
-                              disabled={period.isCurrent}
-                            />
-                          </div>
-                          <div className="col-span-4">
-                            <Input
-                              type="number"
-                              placeholder="Allocation"
-                              value={envelope.allocation}
-                              onChange={(e) => handleEnvelopeChange(index, "allocation", e.target.value)}
-                              min="0"
-                              step="0.01"
-                              disabled={period.isCurrent}
-                            />
-                          </div>
-                          <div className="col-span-2 flex justify-end">
-                            {!period.isCurrent && (
-                              <Button onClick={() => handleRemoveEnvelope(index)}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+            {saveMessage && (
+              <View
+                style={[
+                  styles.alert,
+                  saveMessage.includes("successfully") ? styles.successAlert : styles.errorAlert,
+                ]}
+              >
+                <Text style={styles.alertText}>{saveMessage}</Text>
+              </View>
+            )}
 
-                      {!period.isCurrent && (
-                        <Button className="w-full mt-2" onClick={handleAddEnvelope}>
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Envelope
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                  {!period.isCurrent && (
-                    <CardFooter className="flex justify-between">
-                      {period.isPlanned && (
-                        <Button onClick={handleDeletePlan}>
-                          <X className="h-4 w-4 mr-2" />
-                          Delete Plan
-                        </Button>
-                      )}
-                      <Button onClick={handleSavePlan} className="ml-auto">
-                        <Save className="h-4 w-4 mr-2" />
-                        Save Plan
-                      </Button>
-                    </CardFooter>
+            <View style={styles.envelopesSection}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
+                  {selectedPeriod.isCurrent ? "Current Envelopes" : "Planned Envelopes"}
+                </Text>
+                {selectedPeriod.isPlanned && !selectedPeriod.isCurrent && (
+                  <View style={styles.savedIndicator}>
+                    <Icon name="check" size={16} color="#059669" />
+                    <Text style={styles.savedText}>Plan Saved</Text>
+                  </View>
+                )}
+              </View>
+
+              {plannedEnvelopes.map((envelope, index) => (
+                <View key={index} style={styles.envelopeRow}>
+                  <TextInput
+                    style={styles.nameInput}
+                    placeholder="Envelope name"
+                    value={envelope.name}
+                    onChangeText={(value) => handleEnvelopeChange(index, "name", value)}
+                    editable={!selectedPeriod.isCurrent}
+                  />
+                  <TextInput
+                    style={styles.amountInput}
+                    placeholder="Allocation"
+                    value={envelope.allocation.toString()}
+                    onChangeText={(value) => handleEnvelopeChange(index, "allocation", value)}
+                    keyboardType="numeric"
+                    editable={!selectedPeriod.isCurrent}
+                  />
+                  {!selectedPeriod.isCurrent && (
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => handleRemoveEnvelope(index)}
+                    >
+                      <Icon name="trash-can" size={20} color="#EF4444" />
+                    </TouchableOpacity>
                   )}
-                </Card>
-              </TabsContent>
-            ))}
-          </Tabs>
-        </CardContent>
-      </Card>
-    </div>
+                </View>
+              ))}
+
+              {!selectedPeriod.isCurrent && (
+                <TouchableOpacity style={styles.addButton} onPress={handleAddEnvelope}>
+                  <Icon name="plus" size={20} color="#007AFF" />
+                  <Text style={styles.addButtonText}>Add Envelope</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {!selectedPeriod.isCurrent && (
+              <View style={styles.footer}>
+                {selectedPeriod.isPlanned && (
+                  <TouchableOpacity style={styles.deleteButton} onPress={handleDeletePlan}>
+                    <Icon name="close" size={20} color="#EF4444" />
+                    <Text style={styles.deleteButtonText}>Delete Plan</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.saveButton} onPress={handleSavePlan}>
+                  <Icon name="content-save" size={20} color="#007AFF" />
+                  <Text style={styles.saveButtonText}>Save Plan</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    </ScrollView>
   )
 }
 
@@ -321,3 +350,233 @@ function getOrdinalSuffix(num: number): string {
   }
   return "th"
 }
+
+const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 16,
+  },
+  content: {
+    padding: 24,
+  },
+  setupMessage: {
+    textAlign: "center",
+    color: "#6B7280",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  settingsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 8,
+  },
+  settingsButtonText: {
+    marginLeft: 8,
+    color: "#007AFF",
+    fontSize: 16,
+  },
+  description: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginBottom: 24,
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    marginBottom: 24,
+  },
+  tab: {
+    flex: 1,
+    padding: 12,
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "#E5E7EB",
+  },
+  activeTab: {
+    borderBottomColor: "#007AFF",
+  },
+  tabTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  activeTabText: {
+    color: "#007AFF",
+  },
+  tabDate: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+  plannedIndicator: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#059669",
+  },
+  periodContent: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  periodHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  periodTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  periodSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+  budgetSummary: {
+    alignItems: "flex-end",
+  },
+  budgetLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  budgetAmount: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  targetAmount: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  alert: {
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  successAlert: {
+    backgroundColor: "#ECFDF5",
+  },
+  errorAlert: {
+    backgroundColor: "#FEF2F2",
+  },
+  alertText: {
+    color: "#111827",
+  },
+  envelopesSection: {
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  savedIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  savedText: {
+    marginLeft: 4,
+    color: "#059669",
+    fontSize: 14,
+  },
+  envelopeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  nameInput: {
+    flex: 3,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 6,
+    padding: 8,
+    marginRight: 8,
+    fontSize: 16,
+  },
+  amountInput: {
+    flex: 2,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 6,
+    padding: 8,
+    marginRight: 8,
+    fontSize: 16,
+  },
+  removeButton: {
+    padding: 8,
+  },
+  addButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#007AFF",
+    borderRadius: 6,
+    marginTop: 8,
+  },
+  addButtonText: {
+    marginLeft: 8,
+    color: "#007AFF",
+    fontSize: 16,
+  },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 16,
+  },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#EF4444",
+    borderRadius: 6,
+  },
+  deleteButtonText: {
+    marginLeft: 8,
+    color: "#EF4444",
+    fontSize: 16,
+  },
+  saveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "#007AFF",
+    borderRadius: 6,
+  },
+  saveButtonText: {
+    marginLeft: 8,
+    color: "#fff",
+    fontSize: 16,
+  },
+})

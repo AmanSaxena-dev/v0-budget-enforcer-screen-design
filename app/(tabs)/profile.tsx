@@ -1,7 +1,8 @@
 "use client"
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native"
 import { useAuth } from "@/context/authContext"
 import { Ionicons } from "@expo/vector-icons"
+import { router } from "expo-router"
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth()
@@ -9,7 +10,10 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Logout", style: "destructive", onPress: logout },
+      { text: "Logout", style: "destructive", onPress: ()=> {
+        logout;
+        router.replace("/auth");
+      } },
     ])
   }
 

@@ -1,67 +1,90 @@
-"use client"
-import { useAuth } from "@/context/authContext"
-import { BudgetProvider, useBudget } from "@/context/budgetContext"
-import { AuthProvider } from "@/context/authContext"
 import { LoginForm } from "@/components/auth/login-form"
 import { SignupFlow } from "@/components/auth/signup-flow"
-import {BudgetStatusScreen} from "@/components/BudgetStatusScreen"
-import PurchaseSimulator from "@/components/purchase-simulator"
-import { PeriodInfo } from "@/components/period-info"
+import { BillsEnvelope } from "@/components/billsEnvelope"
+import BudgetStatusScreen from "@/components/BudgetStatusScreen"
 import { EnvelopeList } from "@/components/EnvelopeList"
-import { TransactionHistory } from "@/components/transactionHistory"
-import { ShuffleLimits } from "@/components/shuffleLimits"
+import { PeriodInfo } from "@/components/period-info"
 import { PeriodPlannerV2 } from "@/components/periodPlanner"
+import PurchaseSimulator from "@/components/purchase-simulator"
+import { ShuffleLimits } from "@/components/shuffleLimits"
+import { TransactionHistory } from "@/components/transactionHistory"
 import { WelcomeScreen } from "@/components/welcomeScreen"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { LogOut, User } from "lucide-react"
-import type { UserPreferences } from "@/types/budget"
+import { AuthProvider, useAuth } from "@/context/authContext"
+import { BudgetProvider, useBudget } from "@/context/budgetContext"
+import React from "react"
+import { ScrollView, StyleSheet, Text, View } from "react-native"
+import { Button } from "react-native-paper"
+import Icon from "react-native-vector-icons/MaterialCommunityIcons"
 
 function BudgetContent() {
   const { hasActiveBudget } = useBudget()
+  const [tab, setTab] = React.useState<"dashboard" | "history" | "planning">("dashboard")
 
   if (!hasActiveBudget) {
     return <WelcomeScreen />
   }
 
   return (
-    <div className="space-y-6">
+    <View style={styles.section}>
       <PeriodInfo />
 
-      <Tabs defaultValue="dashboard">
-        <TabsList className="grid grid-cols-3 w-full max-w-md mx-auto">
-          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="planning">Planning</TabsTrigger>
-        </TabsList>
+      {/* Tabs */}
+      <View style={styles.tabsRow}>
+        <Button
+          mode={tab === "dashboard" ? "contained" : "outlined"}
+          onPress={() => setTab("dashboard")}
+          style={styles.tabButton}
+        >
+          Dashboard
+        </Button>
+        <Button
+          mode={tab === "history" ? "contained" : "outlined"}
+          onPress={() => setTab("history")}
+          style={styles.tabButton}
+        >
+          History
+        </Button>
+        <Button
+          mode={tab === "planning" ? "contained" : "outlined"}
+          onPress={() => setTab("planning")}
+          style={styles.tabButton}
+        >
+          Planning
+        </Button>
+      </View>
 
-        <TabsContent value="dashboard" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-2">
+      {tab === "dashboard" && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 12 }}>
+          <BillsEnvelope />
+          <View style={styles.dashboardGrid}>
+            <View style={styles.dashboardMain}>
               <EnvelopeList />
-            </div>
-            <div>
+            </View>
+            <View style={styles.dashboardSide}>
               <PurchaseSimulator />
-            </div>
-          </div>
-
-          <div className="mt-6">
+            </View>
+          </View>
+          <View style={{ marginTop: 24 }}>
             <BudgetStatusScreen />
-          </div>
-        </TabsContent>
+          </View>
+        </ScrollView>
+      )}
 
-        <TabsContent value="history" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {tab === "history" && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 12 }}>
+          <View style={styles.historyGrid}>
             <TransactionHistory />
             <ShuffleLimits />
-          </div>
-        </TabsContent>
+          </View>
+        </ScrollView>
+      )}
 
-        <TabsContent value="planning" className="mt-6">
+      {tab === "planning" && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 12 }}>
           <PeriodPlannerV2 />
-        </TabsContent>
-      </Tabs>
-    </div>
+        </ScrollView>
+      )}
+    </View>
   )
 }
 
@@ -74,40 +97,37 @@ function AppContent() {
 
   if (!user.hasCompletedSetup) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <View style={styles.centeredScreen}>
         <SignupFlow
-          onComplete={(preferences: Omit<UserPreferences, "autoCreatePeriods">) => {
+          onComplete={(preferences) => {
             updateUserPreferences({
               ...preferences,
               autoCreatePeriods: true,
             })
           }}
         />
-      </div>
+      </View>
     )
   }
 
   return (
     <BudgetProvider>
-      <div className="min-h-screen p-4 md:p-8">
-        <div className="max-w-6xl mx-auto space-y-6">
-          <header className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold">Budget Enforcer</h1>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center">
-                <User className="h-4 w-4 mr-2" />
-                <span>{user.name}</span>
-              </div>
-              <Button onClick={logout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
-            </div>
-          </header>
-
-          <BudgetContent />
-        </div>
-      </div>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Budget Enforcer</Text>
+          <View style={styles.headerRight}>
+            <View style={styles.userRow}>
+              <Icon name="account" size={20} color="#374151" style={{ marginRight: 6 }} />
+              <Text>{user.name}</Text>
+            </View>
+            <Button mode="outlined" compact onPress={logout} style={styles.logoutButton}>
+              <Icon name="logout" size={18} color="#374151" style={{ marginRight: 4 }} />
+              Logout
+            </Button>
+          </View>
+        </View>
+        <BudgetContent />
+      </ScrollView>
     </BudgetProvider>
   )
 }
@@ -119,3 +139,82 @@ export default function Home() {
     </AuthProvider>
   )
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#f9fafb",
+    paddingHorizontal: 8,
+    paddingTop: 16,
+  },
+  screenContent: {
+    flexGrow: 1,
+    maxWidth: 900,
+    alignSelf: "center",
+    paddingBottom: 32,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#1e293b",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  userRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 8,
+  },
+  logoutButton: {
+    marginLeft: 8,
+  },
+  section: {
+    flex: 1,
+    marginTop: 8,
+  },
+  tabsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 8,
+    gap: 8,
+  },
+  tabButton: {
+    flex: 1,
+    marginHorizontal: 2,
+  },
+  dashboardGrid: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 16,
+  },
+  dashboardMain: {
+    flex: 2,
+    marginRight: 8,
+  },
+  dashboardSide: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  historyGrid: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 16,
+  },
+  centeredScreen: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
+    backgroundColor: "#f9fafb",
+  },
+})

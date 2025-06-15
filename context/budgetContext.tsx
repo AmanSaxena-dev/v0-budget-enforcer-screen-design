@@ -1,20 +1,22 @@
 "use client"
 
-import type React from "react"
-import { createContext, useContext, useState, useEffect } from "react"
-import AsyncStorage from "@react-native-async-storage/async-storage"
+import { useAuth } from "@/context/authContext"
 import type {
+  Bill,
+  BillsEnvelope,
   Envelope,
-  Purchase,
-  StatusResult,
-  ShuffleAllocation,
-  ShuffleTransaction,
   Period,
+  Purchase,
+  ShuffleAllocation,
   ShuffleLimit,
+  ShuffleTransaction,
+  StatusResult,
   UserPreferences,
 } from "@/types/budget"
-import { calculateStatus, updateEnvelopeStatus } from "@/utils/budget-calculator"
-import { useAuth } from "@/context/authContext"
+import { calculateNextPeriod, calculateStatus, updateEnvelopeStatus } from "@/utils/budget-calculator"
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import type React from "react"
+import { createContext, useContext, useEffect, useState } from "react"
 
 // Storage keys
 const ENVELOPES_KEY = "budget_enforcer_envelopes"
@@ -41,6 +43,28 @@ export const suggestedEnvelopes = [
     periodLength: 14,
   },
 ]
+
+type PaycheckFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
+
+const periodsPerMonth: Record<PaycheckFrequency, number> = {
+  weekly: 4,
+  biweekly: 2,
+  semimonthly: 2,
+  monthly: 1
+}
+
+const periodsPerMonthDisplay: Record<PaycheckFrequency, string> = {
+  weekly: '4',
+  biweekly: '2',
+  semimonthly: '2',
+  monthly: '1'
+}
+
+interface PeriodPlan {
+  envelopes: Omit<Envelope, "id" | "color" | "startDate">[]
+  billsAllocation?: number
+  savedAt?: string
+}
 
 interface BudgetContextType {
   envelopes: Envelope[]
@@ -69,20 +93,30 @@ interface BudgetContextType {
     startDate: Date,
     periodLength: number,
     envelopes: Omit<Envelope, "id" | "color" | "startDate">[],
-    endDate?: Date,
+    endDate?: Date, // Add optional end date parameter
+    billsData?: {
+      bills: Omit<Bill, "id" | "lastPaidDate">[]
+      initialBalance: number
+    },
   ) => void
   hasActiveBudget: boolean
-  getNextPeriods: () => Array<{
+  getNextPeriods: () => Promise<Array<{
     id: string
     startDate: Date
     endDate: Date
     periodLength: number
     isPlanned: boolean
     isCurrent?: boolean
-  }>
-  savePeriodPlan: (periodId: string, envelopes: Omit<Envelope, "id" | "color" | "startDate">[]) => void
-  getPeriodPlan: (periodId: string) => Omit<Envelope, "id" | "color" | "startDate">[] | null
-  deletePeriodPlan: (periodId: string) => void
+  }>>
+  savePeriodPlan: (periodId: string, plan: PeriodPlan) => Promise<void>
+  getPeriodPlan: (periodId: string) => Promise<PeriodPlan | null>
+  deletePeriodPlan: (periodId: string) => Promise<void>
+  billsEnvelope: BillsEnvelope | null
+  addBill: (bill: Omit<Bill, "id">) => void
+  updateBill: (id: string, updates: Partial<Bill>) => void
+  deleteBill: (id: string) => void
+  addMoneyToBills: (amount: number) => void
+  payBill: (billId: string) => void
 }
 
 const BudgetContext = createContext<BudgetContextType | undefined>(undefined)
@@ -108,8 +142,9 @@ const calculateNextPeriods = (
   // If we have a current period, include it as the first "next" period
   if (currentPeriod) {
     // Calculate the actual period length from the stored dates
-    const actualPeriodLength =
-      Math.ceil((currentPeriod.endDate.getTime() - currentPeriod.startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    const actualPeriodLength = Math.ceil(
+      (currentPeriod.endDate.getTime() - currentPeriod.startDate.getTime()) / (1000 * 60 * 60 * 24),
+    )
 
     periods.push({
       id: currentPeriod.id,
@@ -123,12 +158,12 @@ const calculateNextPeriods = (
     // Start calculating future periods from the day after current period ends
     nextStart = new Date(currentPeriod.endDate)
     nextStart.setDate(nextStart.getDate() + 1)
-    nextStart.setHours(6, 0, 0, 0)
+    nextStart.setHours(0, 0, 0, 0)
     count = count - 1 // We already added the current period
   } else {
     // If no current period, start from the next paycheck date
     nextStart = new Date(userPreferences.nextPayday)
-    nextStart.setHours(6, 0, 0, 0)
+    nextStart.setHours(0, 0, 0, 0)
   }
 
   // Calculate future periods based on paycheck frequency
@@ -162,7 +197,7 @@ const calculateNextPeriods = (
         endDate.setHours(23, 59, 59, 999)
 
         // Calculate actual period length
-        periodLength = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+        periodLength = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
         break
 
       case "semimonthly":
@@ -170,7 +205,7 @@ const calculateNextPeriods = (
           throw new Error("Semi-monthly pay days not configured")
         }
 
-        const [firstPayDay, secondPayDay] = userPreferences.semiMonthlyPayDays.sort((a, b) => a - b)
+        const [firstPayDay, secondPayDay] = userPreferences.semiMonthlyPayDays.sort((a: any, b: any) => a - b)
         const currentDay = startDate.getDate()
 
         let nextPayDay: Date
@@ -203,7 +238,7 @@ const calculateNextPeriods = (
         endDate.setHours(23, 59, 59, 999)
 
         // Calculate actual period length
-        periodLength = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+        periodLength = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
         break
 
       case "weekly":
@@ -222,6 +257,14 @@ const calculateNextPeriods = (
         break
     }
 
+    // Debug logging to help diagnose issues
+    console.log(`Period ${i + 1}:`, {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      periodLength,
+      paycheckFrequency: userPreferences.paycheckFrequency,
+    })
+
     periods.push({
       id: `future_period_${startDate.getTime()}`,
       startDate: new Date(startDate),
@@ -233,7 +276,7 @@ const calculateNextPeriods = (
     // For the next iteration, set nextStart to the day after this period's end date
     nextStart = new Date(endDate)
     nextStart.setDate(endDate.getDate() + 1)
-    nextStart.setHours(6, 0, 0, 0)
+    nextStart.setHours(0, 0, 0, 0)
   }
 
   return periods
@@ -256,90 +299,63 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [showStatusScreen, setShowStatusScreen] = useState(false)
   const [showShuffleScreen, setShowShuffleScreen] = useState(false)
 
+  const [billsEnvelope, setBillsEnvelope] = useState<BillsEnvelope | null>(null)
+
   // Get the current period
   const currentPeriod = periods.length > 0 ? periods[periods.length - 1] : null
 
-  // Load data from AsyncStorage when user changes
+  // Load data from localStorage when user changes
   useEffect(() => {
+    if (!user?.id) return
+
     const loadData = async () => {
       try {
         // Load envelopes
         const envelopesJson = await AsyncStorage.getItem(`${ENVELOPES_KEY}_${userId}`)
         if (envelopesJson) {
-          const loadedEnvelopes = JSON.parse(envelopesJson).map((env: any) => ({
-            ...env,
-            startDate: new Date(env.startDate),
-          }))
-          setEnvelopes(loadedEnvelopes.map(updateEnvelopeStatus))
-          setHasActiveBudget(loadedEnvelopes.length > 0)
-        } else {
-          setEnvelopes([])
-          setHasActiveBudget(false)
+          setEnvelopes(JSON.parse(envelopesJson))
         }
 
         // Load purchases
         const purchasesJson = await AsyncStorage.getItem(`${PURCHASES_KEY}_${userId}`)
         if (purchasesJson) {
-          const loadedPurchases = JSON.parse(purchasesJson).map((purchase: any) => ({
-            ...purchase,
-            date: new Date(purchase.date),
-          }))
-          setPurchases(loadedPurchases)
-        } else {
-          setPurchases([])
+          setPurchases(JSON.parse(purchasesJson))
         }
 
         // Load shuffle transactions
         const shufflesJson = await AsyncStorage.getItem(`${SHUFFLES_KEY}_${userId}`)
         if (shufflesJson) {
-          const loadedShuffles = JSON.parse(shufflesJson).map((shuffle: any) => ({
-            ...shuffle,
-            date: new Date(shuffle.date),
-          }))
-          setShuffleTransactions(loadedShuffles)
-        } else {
-          setShuffleTransactions([])
+          setShuffleTransactions(JSON.parse(shufflesJson))
         }
 
         // Load periods
         const periodsJson = await AsyncStorage.getItem(`${PERIODS_KEY}_${userId}`)
         if (periodsJson) {
-          const loadedPeriods = JSON.parse(periodsJson).map((period: any) => ({
-            ...period,
-            startDate: new Date(period.startDate),
-            endDate: new Date(period.endDate),
-            envelopes: period.envelopes.map((env: any) => ({
-              ...env,
-              startDate: new Date(env.startDate),
-            })),
-            transactions: period.transactions.map((transaction: any) => ({
-              ...transaction,
-              date: new Date(transaction.date),
-            })),
-          }))
-          setPeriods(loadedPeriods)
-        } else {
-          setPeriods([])
+          setPeriods(JSON.parse(periodsJson))
         }
 
         // Load shuffle limits
         const limitsJson = await AsyncStorage.getItem(`${SHUFFLE_LIMITS_KEY}_${userId}`)
         if (limitsJson) {
           setShuffleLimits(JSON.parse(limitsJson))
-        } else {
-          setShuffleLimits([])
+        }
+
+        // Load bills envelope
+        const billsJson = await AsyncStorage.getItem(`budget_enforcer_bills_${userId}`)
+        if (billsJson) {
+          setBillsEnvelope(JSON.parse(billsJson))
         }
       } catch (error) {
-        console.error("Error loading data:", error)
+        console.error('Error loading budget data:', error)
       }
     }
 
     loadData()
-  }, [user, userId])
+  }, [user?.id])
 
-  // Save data to AsyncStorage when it changes
+  // Save data to localStorage when it changes
   useEffect(() => {
-    if (!user) return
+    if (!user?.id) return
 
     const saveData = async () => {
       try {
@@ -348,13 +364,14 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem(`${SHUFFLES_KEY}_${userId}`, JSON.stringify(shuffleTransactions))
         await AsyncStorage.setItem(`${PERIODS_KEY}_${userId}`, JSON.stringify(periods))
         await AsyncStorage.setItem(`${SHUFFLE_LIMITS_KEY}_${userId}`, JSON.stringify(shuffleLimits))
+        await AsyncStorage.setItem(`budget_enforcer_bills_${userId}`, JSON.stringify(billsEnvelope))
       } catch (error) {
-        console.error("Error saving data:", error)
+        console.error('Error saving budget data:', error)
       }
     }
 
     saveData()
-  }, [user, userId, envelopes, purchases, shuffleTransactions, periods, shuffleLimits])
+  }, [envelopes, purchases, shuffleTransactions, periods, shuffleLimits, billsEnvelope, user?.id])
 
   // Calculate initial status when current envelope changes
   useEffect(() => {
@@ -392,7 +409,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Confirm the purchase
-  const confirmPurchase = async () => {
+  const confirmPurchase = () => {
     if (currentEnvelope && currentPurchase) {
       // Add purchase to history
       const newPurchases = [...purchases, currentPurchase]
@@ -440,7 +457,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Shuffle envelopes
-  const shuffleEnvelopes = async (targetEnvelopeId: string, purchase: Purchase, allocations: ShuffleAllocation[]) => {
+  const shuffleEnvelopes = (targetEnvelopeId: string, purchase: Purchase, allocations: ShuffleAllocation[]) => {
     // Get the target envelope
     const targetEnvelope = envelopes.find((env) => env.id === targetEnvelopeId)
     if (!targetEnvelope || !purchase) return
@@ -533,11 +550,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Add a new envelope
-  const addEnvelope = async (envelope: Omit<Envelope, "id" | "color">) => {
+  const addEnvelope = (envelope: Omit<Envelope, "id" | "color">) => {
     const newEnvelope: Envelope = {
       ...envelope,
       id: `env_${Date.now()}`,
-      color: "#dcfce7", // Default color, will be updated
+      color: "bg-green-100", // Default color, will be updated
     }
 
     const updatedEnvelope = updateEnvelopeStatus(newEnvelope)
@@ -571,7 +588,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Update an envelope
-  const updateEnvelope = async (id: string, updates: Partial<Envelope>) => {
+  const updateEnvelope = (id: string, updates: Partial<Envelope>) => {
     const updatedEnvelopes = envelopes.map((env) => {
       if (env.id === id) {
         const updated = { ...env, ...updates }
@@ -604,7 +621,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Delete an envelope
-  const deleteEnvelope = async (id: string) => {
+  const deleteEnvelope = (id: string) => {
     const newEnvelopes = envelopes.filter((env) => env.id !== id)
     setEnvelopes(newEnvelopes)
     setHasActiveBudget(newEnvelopes.length > 0)
@@ -634,7 +651,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Update shuffle limit for an envelope
-  const updateShuffleLimit = async (envelopeId: string, maxAmount: number) => {
+  const updateShuffleLimit = (envelopeId: string, maxAmount: number) => {
     const limitIndex = shuffleLimits.findIndex((limit) => limit.envelopeId === envelopeId)
 
     if (limitIndex >= 0) {
@@ -657,11 +674,15 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Start a new period
-  const startNewPeriod = async (
+  const startNewPeriod = (
     startDate: Date,
     periodLength: number,
     envelopeData: Omit<Envelope, "id" | "color" | "startDate">[],
     providedEndDate?: Date,
+    billsData?: {
+      bills: Omit<Bill, "id" | "lastPaidDate">[]
+      initialBalance: number
+    },
   ) => {
     // Use provided end date or calculate it
     const endDate =
@@ -687,7 +708,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         ...envData,
         id: `env_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         startDate,
-        color: "#dcfce7", // Will be updated
+        color: "bg-green-100", // Will be updated
         // If there's an existing envelope, calculate previousRemaining
         previousRemaining: existingEnvelope ? Math.max(0, existingEnvelope.allocation - existingEnvelope.spent) : 0,
       }
@@ -723,6 +744,92 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     }))
     setShuffleLimits(newShuffleLimits)
 
+    // Set up bills envelope if bills data is provided
+    if (billsData && billsData.bills.length > 0) {
+      const newBills = billsData.bills.map((bill) => ({
+        ...bill,
+        id: `bill_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        lastPaidDate: undefined,
+      }))
+
+      const totalMonthlyBills = newBills.reduce((sum, bill) => sum + bill.amount, 0)
+      const cushionAmount = totalMonthlyBills * 0.15 // 15% cushion
+      const targetAmount = totalMonthlyBills + cushionAmount
+      const currentBalance = billsData.initialBalance
+
+      // Calculate funding status
+      const isFullyFunded = currentBalance >= totalMonthlyBills
+      const hasReachedCushion = currentBalance >= targetAmount
+
+      // Find next due bill
+      const today = new Date()
+      const upcomingBills = newBills
+        .map((bill) => {
+          const thisMonth = new Date(today.getFullYear(), today.getMonth(), bill.dueDay)
+          const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, bill.dueDay)
+          return {
+            ...bill,
+            dueDate: thisMonth >= today ? thisMonth : nextMonth,
+          }
+        })
+        .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+
+      const nextDueDate = upcomingBills.length > 0 ? upcomingBills[0].dueDate : new Date()
+      const nextDueAmount = upcomingBills.length > 0 ? upcomingBills[0].amount : 0
+
+      // Calculate required per paycheck based on user preferences
+      let requiredPerPaycheck = 0
+      if (user?.preferences && !hasReachedCushion) {
+        const amountNeeded = targetAmount - currentBalance
+
+        // Calculate based on paycheck frequency
+        switch (user.preferences.paycheckFrequency) {
+          case "weekly":
+            requiredPerPaycheck = totalMonthlyBills / 4.33 // Average weeks per month
+            break
+          case "biweekly":
+            requiredPerPaycheck = totalMonthlyBills / 2.17 // Average biweekly periods per month
+            break
+          case "semimonthly":
+            requiredPerPaycheck = totalMonthlyBills / 2
+            break
+          case "monthly":
+            requiredPerPaycheck = totalMonthlyBills
+            break
+          default:
+            requiredPerPaycheck = totalMonthlyBills / 2
+        }
+
+        // If we need more to reach target, adjust accordingly
+        if (amountNeeded > 0) {
+          // Add a portion of the needed amount to each paycheck
+          const paychecksPerMonth = user.preferences.paycheckFrequency 
+            ? periodsPerMonth[user.preferences.paycheckFrequency as PaycheckFrequency] 
+            : 2
+
+          requiredPerPaycheck += amountNeeded / (paychecksPerMonth * 2) // Spread over 2 months
+        }
+      }
+
+      // Create the bills envelope
+      const newBillsEnvelope: BillsEnvelope = {
+        id: "bills_envelope",
+        name: "Bills",
+        totalMonthlyBills,
+        cushionAmount,
+        targetAmount,
+        currentBalance,
+        bills: newBills,
+        nextDueDate,
+        nextDueAmount,
+        isFullyFunded,
+        hasReachedCushion,
+        requiredPerPaycheck,
+      }
+
+      setBillsEnvelope(newBillsEnvelope)
+    }
+
     // Reset purchases and shuffle transactions
     // Note: We don't clear the history, but we do reset the current state
     setCurrentPurchase(null)
@@ -731,72 +838,403 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Get next periods based on user preferences
-  const getNextPeriods = () => {
-    if (!user?.preferences) return []
+  const getNextPeriods = async () => {
+    if (!user?.preferences || !currentPeriod) return []
 
     const nextPeriods = calculateNextPeriods(user.preferences, currentPeriod, 3)
 
     // Check which periods have saved plans
-    const checkSavedPlans = async () => {
-      try {
-        const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
-        const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
+    const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+    const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
-        return nextPeriods.map((period) => ({
-          ...period,
-          isPlanned: period.isCurrent || !!savedPlans[period.id],
-        }))
-      } catch (error) {
-        console.error("Error checking saved plans:", error)
-        return nextPeriods
-      }
-    }
+    // Check for regular period plan
+    const regularPlanJson = await AsyncStorage.getItem(`budget_enforcer_regular_plan_${userId}`)
+    const hasRegularPlan = !!regularPlanJson
 
-    // For now, return without async check - this could be improved
-    return nextPeriods
+    return nextPeriods.map((period) => ({
+      ...period,
+      isPlanned: !!savedPlans[period.id] || hasRegularPlan,
+    }))
   }
 
   // Save a plan for a specific period
-  const savePeriodPlan = async (periodId: string, envelopes: Omit<Envelope, "id" | "color" | "startDate">[]) => {
+  const savePeriodPlan = async (periodId: string, plan: PeriodPlan) => {
+    if (!user?.id) return
+
+    const userId = user.id
+
     try {
       const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
       const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
       savedPlans[periodId] = {
-        envelopes,
-        savedAt: new Date().toISOString(),
+        ...plan,
+        savedAt: new Date().toISOString()
       }
-
       await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
     } catch (error) {
-      console.error("Error saving period plan:", error)
+      console.error('Error saving period plan:', error)
     }
   }
 
   // Get a plan for a specific period
-  const getPeriodPlan = async (periodId: string): Promise<Omit<Envelope, "id" | "color" | "startDate">[] | null> => {
+  const getPeriodPlan = async (periodId: string): Promise<PeriodPlan | null> => {
+    if (!user?.id) return null
+
+    const userId = user.id
+
     try {
+      // First check for specific period plans
       const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
       const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
-      return savedPlans[periodId]?.envelopes || null
+      if (savedPlans[periodId]) {
+        return savedPlans[periodId]
+      }
+
+      // If no specific regular period found, check for the default regular plan template
+      const regularPlanJson = await AsyncStorage.getItem(`budget_enforcer_regular_plan_${userId}`)
+      if (regularPlanJson) {
+        const regularPlan = JSON.parse(regularPlanJson)
+        return regularPlan
+      }
+
+      return null
     } catch (error) {
-      console.error("Error getting period plan:", error)
+      console.error('Error getting period plan:', error)
       return null
     }
   }
 
   // Delete a plan for a specific period
   const deletePeriodPlan = async (periodId: string) => {
+    if (!user?.id) return
+
+    const userId = user.id
+
     try {
       const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
       const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
 
       delete savedPlans[periodId]
-
       await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
     } catch (error) {
-      console.error("Error deleting period plan:", error)
+      console.error('Error deleting period plan:', error)
+    }
+  }
+
+  // Check if we should automatically start the next period
+  const checkAndStartNextPeriod = async () => {
+    if (!user?.preferences || !currentPeriod) return
+
+    const now = new Date()
+    const periodEndDate = new Date(currentPeriod.endDate)
+    periodEndDate.setHours(23, 59, 59, 999)
+
+    // Check if current period has ended
+    if (now > periodEndDate) {
+      try {
+        // Look for a saved plan for the next period
+        const nextPeriodStart = new Date(currentPeriod.endDate)
+        nextPeriodStart.setDate(nextPeriodStart.getDate() + 1)
+
+        const nextPeriodId = `period_${nextPeriodStart.getTime()}`
+        const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+        let savedPlans: Record<string, PeriodPlan> = {}
+        
+        if (savedPlansJson && typeof savedPlansJson === 'string' && savedPlansJson.trim().startsWith('{')) {
+          try {
+            savedPlans = JSON.parse(savedPlansJson)
+          } catch (e) {
+            console.error('Error parsing saved plans:', e)
+            savedPlans = {}
+          }
+        }
+
+        if (savedPlans[nextPeriodId]) {
+          // We have a saved plan, use it to start the next period
+          const plan = savedPlans[nextPeriodId]
+          const nextPeriodLength = user.preferences.periodLength
+
+          // Calculate the actual next period dates based on user preferences
+          const { startDate, endDate, periodLength } = calculateNextPeriod(user.preferences, currentPeriod.endDate)
+
+          startNewPeriod(
+            startDate,
+            periodLength,
+            plan.envelopes.map((env: any) => ({
+              ...env,
+              periodLength,
+            })),
+          )
+
+          // Remove the used plan
+          delete savedPlans[nextPeriodId]
+          await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
+        }
+      } catch (error) {
+        console.error('Error in checkAndStartNextPeriod:', error)
+      }
+    }
+  }
+
+  // Calculate bills envelope metrics
+  const calculateBillsMetrics = (bills: Bill[], currentBalance: number, userPreferences: UserPreferences | null) => {
+    const totalMonthlyBills = bills.reduce((sum, bill) => sum + bill.amount, 0)
+
+    // Calculate cushion: 15% of total monthly bills
+    const cushionAmount = totalMonthlyBills * 0.15
+
+    // Total target amount includes monthly bills plus cushion
+    const targetAmount = totalMonthlyBills + cushionAmount
+
+    // Check if we have reached the cushioned target
+    const hasReachedCushion = currentBalance >= targetAmount
+    const isFullyFunded = currentBalance >= totalMonthlyBills
+
+    let requiredPerPaycheck = 0
+    if (userPreferences && !hasReachedCushion) {
+      // If we haven't reached cushion, calculate how much more we need
+      const amountNeeded = targetAmount - currentBalance
+
+      // Calculate based on next month's bills due date (simplified approach)
+      const today = new Date()
+      const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)
+      const daysUntilNextMonth = Math.floor((nextMonth.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+      // Calculate paychecks until end of month
+      let paychecksUntilTarget = 1
+      switch (userPreferences.paycheckFrequency) {
+        case "weekly":
+          paychecksUntilTarget = Math.max(1, Math.ceil(daysUntilNextMonth / 7))
+          break
+        case "biweekly":
+          paychecksUntilTarget = Math.max(1, Math.ceil(daysUntilNextMonth / 14))
+          break
+        case "semimonthly":
+          paychecksUntilTarget = Math.max(1, Math.ceil(daysUntilNextMonth / 15))
+          break
+        case "monthly":
+          paychecksUntilTarget = 1
+          break
+      }
+
+      // Required per paycheck to reach cushion target
+      requiredPerPaycheck = Math.max(0, amountNeeded / paychecksUntilTarget)
+    } else if (userPreferences && hasReachedCushion) {
+      // Once cushioned, use maintenance amounts
+      switch (userPreferences.paycheckFrequency) {
+        case "weekly":
+          requiredPerPaycheck = totalMonthlyBills / 4.33 // Average weeks per month
+          break
+        case "biweekly":
+          requiredPerPaycheck = totalMonthlyBills / 2.17 // Average biweekly periods per month
+          break
+        case "semimonthly":
+          requiredPerPaycheck = totalMonthlyBills / 2
+          break
+        case "monthly":
+          requiredPerPaycheck = totalMonthlyBills
+          break
+        default:
+          requiredPerPaycheck = totalMonthlyBills / 2
+      }
+    }
+
+    // Find next due bill
+    const today = new Date()
+    const upcomingBills = bills
+      .map((bill) => {
+        const thisMonth = new Date(today.getFullYear(), today.getMonth(), bill.dueDay)
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, bill.dueDay)
+        return {
+          ...bill,
+          dueDate: thisMonth >= today ? thisMonth : nextMonth,
+        }
+      })
+      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+
+    const nextDueDate = upcomingBills.length > 0 ? upcomingBills[0].dueDate : new Date()
+    const nextDueAmount = upcomingBills.length > 0 ? upcomingBills[0].amount : 0
+
+    return {
+      totalMonthlyBills,
+      cushionAmount,
+      targetAmount,
+      hasReachedCushion,
+      isFullyFunded,
+      requiredPerPaycheck,
+      nextDueDate,
+      nextDueAmount,
+    }
+  }
+
+  // Add a bill
+  const addBill = (billData: Omit<Bill, "id">) => {
+    if (!billsEnvelope) return
+
+    const newBill: Bill = {
+      ...billData,
+      id: `bill_${Date.now()}`,
+    }
+
+    const updatedBills = [...billsEnvelope.bills, newBill]
+    const metrics = calculateBillsMetrics(updatedBills, billsEnvelope.currentBalance, user?.preferences || null)
+
+    setBillsEnvelope({
+      ...billsEnvelope,
+      bills: updatedBills,
+      ...metrics,
+    })
+  }
+
+  // Update a bill
+  const updateBill = (id: string, updates: Partial<Bill>) => {
+    if (!billsEnvelope) return
+
+    const updatedBills = billsEnvelope.bills.map((bill: any) => (bill.id === id ? { ...bill, ...updates } : bill))
+
+    const metrics = calculateBillsMetrics(updatedBills, billsEnvelope.currentBalance, user?.preferences || null)
+
+    setBillsEnvelope({
+      ...billsEnvelope,
+      bills: updatedBills,
+      ...metrics,
+    })
+  }
+
+  // Delete a bill
+  const deleteBill = (id: string) => {
+    if (!billsEnvelope) return
+
+    const updatedBills = billsEnvelope.bills.filter((bill: any) => bill.id !== id)
+    const metrics = calculateBillsMetrics(updatedBills, billsEnvelope.currentBalance, user?.preferences || null)
+
+    setBillsEnvelope({
+      ...billsEnvelope,
+      bills: updatedBills,
+      ...metrics,
+    })
+  }
+
+  // Add money to bills envelope
+  const addMoneyToBills = (amount: number) => {
+    if (!billsEnvelope) return
+
+    const newBalance = billsEnvelope.currentBalance + amount
+    const metrics = calculateBillsMetrics(billsEnvelope.bills, newBalance, user?.preferences || null)
+
+    setBillsEnvelope({
+      ...billsEnvelope,
+      currentBalance: newBalance,
+      ...metrics,
+    })
+  }
+
+  // Pay a bill
+  const payBill = (billId: string) => {
+    if (!billsEnvelope) return
+
+    const bill = billsEnvelope.bills.find((b: any) => b.id === billId)
+    if (!bill || billsEnvelope.currentBalance < bill.amount) return
+
+    const newBalance = billsEnvelope.currentBalance - bill.amount
+    const updatedBills = billsEnvelope.bills.map((b: any) => (b.id === billId ? { ...b, lastPaidDate: new Date() } : b))
+
+    const metrics = calculateBillsMetrics(updatedBills, newBalance, user?.preferences || null)
+
+    setBillsEnvelope({
+      ...billsEnvelope,
+      currentBalance: newBalance,
+      bills: updatedBills,
+      ...metrics,
+    })
+  }
+
+  // Add this useEffect to check for period transitions
+  useEffect(() => {
+    const interval = setInterval(checkAndStartNextPeriod, 60000) // Check every minute
+    checkAndStartNextPeriod() // Check immediately
+
+    return () => clearInterval(interval)
+  }, [user, currentPeriod, userId])
+
+  const loadRegularPeriodPlan = async (periodStart: Date) => {
+    if (!user?.id) return null
+
+    const userId = user.id
+    const periodId = `period_${periodStart.getTime()}`
+
+    try {
+      const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+      if (!savedPlansJson) return null
+
+      const savedPlans = JSON.parse(savedPlansJson)
+      return savedPlans[periodId] || null
+    } catch (error) {
+      console.error('Error loading regular period plan:', error)
+      return null
+    }
+  }
+
+  const loadDefaultRegularPlan = async () => {
+    if (!user?.id) return null
+
+    const userId = user.id
+
+    try {
+      const regularPlanJson = await AsyncStorage.getItem(`budget_enforcer_regular_plan_${userId}`)
+      return regularPlanJson ? JSON.parse(regularPlanJson) : null
+    } catch (error) {
+      console.error('Error loading default regular plan:', error)
+      return null
+    }
+  }
+
+  const saveRegularPeriodPlan = async (periodStart: Date, plan: any) => {
+    if (!user?.id) return
+
+    const userId = user.id
+    const periodId = `period_${periodStart.getTime()}`
+
+    try {
+      const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+      const savedPlans = savedPlansJson ? JSON.parse(savedPlansJson) : {}
+
+      savedPlans[periodId] = plan
+      await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
+    } catch (error) {
+      console.error('Error saving regular period plan:', error)
+    }
+  }
+
+  const saveDefaultRegularPlan = async (plan: any) => {
+    if (!user?.id) return
+
+    const userId = user.id
+
+    try {
+      await AsyncStorage.setItem(`budget_enforcer_regular_plan_${userId}`, JSON.stringify(plan))
+    } catch (error) {
+      console.error('Error saving default regular plan:', error)
+    }
+  }
+
+  const deleteRegularPeriodPlan = async (periodStart: Date) => {
+    if (!user?.id) return
+
+    const userId = user.id
+    const periodId = `period_${periodStart.getTime()}`
+
+    try {
+      const savedPlansJson = await AsyncStorage.getItem(`budget_enforcer_period_plans_${userId}`)
+      if (!savedPlansJson) return
+
+      const savedPlans = JSON.parse(savedPlansJson)
+      delete savedPlans[periodId]
+      await AsyncStorage.setItem(`budget_enforcer_period_plans_${userId}`, JSON.stringify(savedPlans))
+    } catch (error) {
+      console.error('Error deleting regular period plan:', error)
     }
   }
 
@@ -831,6 +1269,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         savePeriodPlan,
         getPeriodPlan,
         deletePeriodPlan,
+        billsEnvelope,
+        addBill,
+        updateBill,
+        deleteBill,
+        addMoneyToBills,
+        payBill,
       }}
     >
       {children}

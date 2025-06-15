@@ -1,10 +1,10 @@
-import { View, StyleSheet } from "react-native"
-import { useBudget } from "../../context/budgetContext"
-import {WelcomeScreen}  from "../../components/welcomeScreen"
-import {PeriodInfo}  from "../../components/PeriodInfo"
-import { EnvelopeList } from "../../components/EnvelopeList"
+import BudgetStatusScreen from "@/components/BudgetStatusScreen"
 import { PurchaseSimulator } from "@/components/PurchaseSimulator"
-import {BudgetStatusScreen}  from "../../components/BudgetStatusScreen"
+import { StyleSheet, View } from "react-native"
+import { EnvelopeList } from "../../components/EnvelopeList"
+import { PeriodInfo } from "../../components/PeriodInfo"
+import { WelcomeScreen } from "../../components/welcomeScreen"
+import { useBudget } from "../../context/budgetContext"
 
 export default function DashboardScreen() {
   const { hasActiveBudget } = useBudget()
